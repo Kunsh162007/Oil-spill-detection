@@ -23,7 +23,7 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-CalibrationMode = Literal["safe_lut", "already_sigma0", "raw_dn_generic"]
+CalibrationMode = Literal["safe_lut", "already_sigma0", "already_db", "raw_dn_generic"]
 
 # Floor for the log conversion. Sea-surface Sigma0 in VV rarely goes below
 # about -35 dB; anything lower is noise or a zero-fill border pixel.
@@ -75,6 +75,18 @@ def detect_mode(data: np.ndarray, lut: np.ndarray | None) -> CalibrationMode:
     finite = data[np.isfinite(data)]
     if finite.size == 0:
         return "already_sigma0"
+
+    # Many products ship as Sigma0 in DECIBELS, which is mostly negative.
+    # Treating those as linear power discards every negative pixel as invalid
+    # and returns an empty scene - silently, because an all-nodata array is a
+    # perfectly valid array.
+    negative_fraction = float(np.mean(finite < 0))
+    if negative_fraction > 0.4:
+        lo = float(np.percentile(finite, 1))
+        hi_db = float(np.percentile(finite, 99))
+        if -60.0 <= lo and hi_db <= 30.0:
+            return "already_db"
+
     hi = float(np.percentile(finite, 99))
     # Sigma0 (linear power) sits well under 1 for the sea; GRD DN is O(100-1000).
     if hi <= 5.0:
@@ -91,13 +103,23 @@ def to_sigma0_db(
     """Convert a GRD amplitude/DN array to Sigma0 in decibels."""
     arr = np.asarray(data, dtype=np.float64)
 
+    lut = read_calibration_lut(safe_dir, polarisation) if safe_dir else None
+    mode = detect_mode(arr, lut)
+
     valid = np.isfinite(arr)
     if nodata is not None:
         valid &= arr != nodata
-    valid &= arr > 0
+    if mode == "already_db":
+        # Negative IS the normal range here; only the fill value is invalid.
+        valid &= arr > -60.0
+    else:
+        valid &= arr > 0
 
-    lut = read_calibration_lut(safe_dir, polarisation) if safe_dir else None
-    mode = detect_mode(arr, lut)
+    if mode == "already_db":
+        db = np.where(valid, arr, NODATA_DB).astype(np.float32)
+        notes = "values already in Sigma0 dB; passed through unchanged"
+        log.info("Calibration mode=%s (%s)", mode, notes)
+        return CalibrationResult(sigma0_db=db, mode=mode, valid_mask=valid, notes=notes)
 
     if mode == "safe_lut":
         assert lut is not None

@@ -38,7 +38,7 @@ same targets spelled out.)
 ### Verify it works
 
 ```bash
-.venv/Scripts/python.exe -m pytest              # 151 tests
+.venv/Scripts/python.exe -m pytest              # 214 tests
 .venv/Scripts/python.exe scripts/eval.py --latency
 .venv/Scripts/python.exe scripts/eval.py --wind-ablation
 ```
@@ -47,20 +47,47 @@ same targets spelled out.)
 
 ## What the map does
 
-| Action | Result |
+Three tabs over one world map.
+
+| Tab | Shows |
 |---|---|
-| Load the page | World map of every confirmed slick across all analysed scenes |
-| Click a slick | Physics breakdown, drift origin, ranked candidate vessels |
-| Press play | Backward-drift animation — the oil crawls back to its origin, with the date and time on each frame |
-| Hover a vessel track | Full voyage: departure port and time, arrival port and time, distance, speed, declared AIS destination |
-| A dashed track segment | The vessel's AIS went silent across that leg |
+| **Overview** | System state, why look-alikes were rejected, latency per stage |
+| **Active** | Slicks detected in imagery fresh enough (< 72 h) to forecast a present position |
+| **Past incidents** | Our historical detections, the documented-spill registry, and every rejected look-alike with its reason |
 
-Vessel routes are drawn as the whole observed passage with **A** (track start)
-and **B** (track end) pins, plus a dotted projection of where the course points
-next. The panel states plainly that those endpoints are the limits of the AIS
-window queried, not of the vessel's entire voyage.
+Clicking a slick opens the full attribution:
 
----
+| Element | What it gives you |
+|---|---|
+| **Timeline** | `Origin → Observed → Now`. Click any point to fly the map there. Origin comes from backward drift, Observed is the satellite record, Now is forward drift to the present. |
+| **Is this actually oil?** | Confidence tier with the evidence behind it |
+| **Physics check** | Wind, damping, morphology and per-feature log-odds weights |
+| **Ranked vessels** | Parity / proximity / temporality, plus the full voyage |
+| **Vessel routes** | The whole passage with **A** (departure) and **B** (arrival) pins, ports, times, and the AIS-declared destination. Dashed segments are AIS gaps. |
+| **Drift animation** | Play the slick back to its origin, timestamped frame by frame |
+
+### Two kinds of dot, never blended
+
+- **Orange / brown** — something *our pipeline detected* in SAR imagery
+- **Pink** — a *documented incident* somebody recorded, independent of any model
+
+Conflating a detection with a confirmed event is the error this project exists
+to avoid, so the two are separate layers with separate colours.
+
+### Only actual oil is presented as oil
+
+Every detection is graded into a tier, and only the top two appear as oil:
+
+| Tier | Meaning |
+|---|---|
+| **Confirmed** | Physics says oil AND a public incident registry records a spill here at this time |
+| **Probable** | Strong physical evidence: good wind, clear damping, discharge-like shape |
+| **Possible** | Consistent with oil but weakly supported — held back by default |
+| **Insufficient** | Does not meet the bar; kept with its reason so the rejection can be audited |
+
+Corroboration is checked against **3,414 documented spills** worldwide. It is
+weighted heavily but capped, so it can never carry a candidate on its own — and
+a physics rejection is never overturned by it.
 
 ## Pipeline
 
@@ -95,28 +122,53 @@ rejected: one of 9 near-parallel bands (axis ~0°) evenly spaced every 3.3 km
 ## Current state — what is real and what is not
 
 **Working and verified:**
-- Full pipeline end to end, 1.2 s per synthetic scene (budget: 120 s)
-- Physics rejection of calm wind, storm wind, weak damping, blooms, rain cells, internal waves
-- Backward drift, verified to 0.07 km against hand-calculated displacement
-- Ranked attribution with dark-vessel detection
+
+- Full pipeline end to end on **real Sentinel-1 imagery**
+- **56 real detections** across 21 genuine Sentinel-1 scenes (Gulf of Mexico, 2018–2020), many corroborated against the Taylor Energy MC-20 site
+- **Fine-tuned U-Net/ResNet-34** on real oil-spill data — Oil IoU **0.54** (see below)
+- **3,414 documented spills** worldwide from NOAA IncidentNews plus a curated world catalogue
+- Physics rejection of calm wind, storm wind, weak damping, blooms, rain cells and internal-wave trains
+- Backward drift verified to 0.07 km, forward drift to 0.02 km, against hand-calculated displacements
+- Ranked attribution with dark-vessel detection and full voyage reconstruction
 - Abstention on every uncertainty case in `CLAUDE.md` rule 5
-- 151 tests, 80% coverage
-- Live Sentinel-1 search against CDSE (verified: 4 dual-pol scenes over the MSC ELSA 3 wreck site)
+- **214 tests**, 80% coverage
+- Live Sentinel-1 search against CDSE (verified over the MSC ELSA 3 wreck site)
+
+### Training
+
+Fine-tuned on Zenodo record 4672426 (CC-BY-4.0): 21 real Sentinel-1 scenes of
+Gulf of Mexico spills with binary pixel masks, cross-referenced against NOAA
+incident reports.
+
+```bash
+python scripts/fetch_incidents.py      # documented spill registry
+python scripts/prepare_dataset.py      # 28,993 patches, read on demand
+python scripts/train.py --config configs/train_gom.yaml
+python scripts/register_scenes.py      # put the real scenes on the map
+```
+
+Patches are read from their parent GeoTIFFs on demand rather than materialised
+(5.7 GB saved). The prep step verifies label quality automatically — the
+coordinate convention in that dataset is `(column, row)` marking the patch
+*centre*; reading it as `(row, col)` top-left drops usable labels from 73% to
+21%, so it is checked rather than assumed.
+
+Selection is on **oil IoU, never mean IoU** — mIoU is dominated by the sea
+class, which every model scores in the 90s on.
 
 **Not yet done — needs data or credentials:**
 
 | Gap | What unblocks it |
 |---|---|
-| **No trained segmentation model.** Runs a classical adaptive dark-patch detector instead, and says so in `/api/health`. | Download Zenodo (2,850 patches) + Deep-SAR SOS, then `scripts/train.py` |
-| **Look-alike weights are hand-set priors, not fitted.** Announced loudly at startup. | Yang et al. PANGAEA dataset → `scripts/train.py --stage lookalike` |
-| **Wind and currents are synthetic** in the demo config. Every drift origin is tagged `analytical-advection-SYNTHETIC`. | `scripts/fetch_wind.py` (ERA5) and CMEMS credentials |
-| **GPU unavailable on this machine** — only 2.5 GB free disk, CUDA wheel needs ~6 GB. Runs on CPU. | Free ~8 GB, then reinstall torch from the cu128 index |
+| **Look-alike weights are hand-set priors**, not fitted. Announced loudly at startup. | Yang et al. PANGAEA dataset → `scripts/train.py --stage lookalike` |
+| **Wind and currents are synthetic or climatological** in the demo configs. Every drift origin is tagged accordingly. | `scripts/fetch_wind.py` (ERA5) and CMEMS credentials |
+| **No active detections** — all imagery on disk is from 2018–2025, so everything is filed as a past incident. | `scripts/fetch_sentinel.py` for imagery from the last 72 h |
+| **GPU unavailable** on this machine (disk-constrained); trained on CPU. | Free ~6 GB, reinstall torch from the cu128 index |
 | **OpenDrift not installed** (conda-first). Analytical RK4 integrator used instead. | `pip install opendrift`, or accept the fallback |
+| **Cerulean API now requires a key** — CLAUDE.md assumed it was open; it returns 403 as of this build. | Request access, or rely on the NOAA registry (already integrated) |
 
 Nothing above is faked. Each degraded path announces itself in logs, in
 `/api/health`, and on screen.
-
----
 
 ## Scripts teammates run
 

@@ -18,3 +18,7 @@ runs/*/
 htmlcov/
 *.egg-info/
 .pytest-tmp/
+data/raw/
+data/reference/*.csv
+data/dev/*_manifest.json
+data/dev/scenes/

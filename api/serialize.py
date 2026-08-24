@@ -40,8 +40,26 @@ def _clean(value: Any) -> Any:
     return value
 
 
+# A detection is only "active" while a present position can honestly be
+# forecast. Past that it is a past incident: real, but historical, and it
+# should not sit on the map implying oil is there right now.
+ACTIVE_WINDOW_HOURS = 72.0
+
+
+def scene_status(acquired_at, now=None) -> tuple[str, float]:
+    """('active'|'historical', age_hours) for a scene acquisition time."""
+    from datetime import datetime, timezone
+
+    now = now or datetime.now(timezone.utc)
+    age = (now - acquired_at).total_seconds() / 3600.0
+    return ("active" if age <= ACTIVE_WINDOW_HOURS else "historical"), age
+
+
 def slick_feature(
-    candidate: SlickCandidate, attribution: Attribution | None, scene_id: str
+    candidate: SlickCandidate,
+    attribution: Attribution | None,
+    scene_id: str,
+    acquired_at=None,
 ) -> dict[str, Any]:
     """One slick as a GeoJSON Feature carrying its full evidence."""
     ring = _wkt_to_coords(candidate.polygon_wkt)
@@ -87,7 +105,26 @@ def slick_feature(
         "disclaimer": DISCLAIMER,
     }
 
+    if acquired_at is not None:
+        status, age_hours = scene_status(acquired_at)
+        props["acquired_at"] = acquired_at.isoformat()
+        props["age_hours"] = round(age_hours, 1)
+        props["age_days"] = round(age_hours / 24.0, 1)
+        props["activity"] = status
+
     if attribution is not None:
+        # Independent confirmation from an incident registry - the strongest
+        # signal that a detection is a real spill rather than a look-alike.
+        corroboration = attribution.evidence.get("corroboration") or {}
+        props["corroborated"] = bool(corroboration.get("confirmed"))
+        props["corroboration"] = (
+            corroboration.get("matches", [])[:1] if corroboration.get("confirmed") else []
+        )
+        confidence = attribution.evidence.get("confidence") or {}
+        props["confidence_tier"] = confidence.get("tier", "unknown")
+        props["confidence_score"] = confidence.get("score")
+        props["confidence_reasons"] = confidence.get("reasons", [])
+        props["is_actual_oil"] = bool(confidence.get("is_actual_oil"))
         props["source_type"] = attribution.source_type
         props["abstained"] = attribution.abstained
         props["abstain_reason"] = attribution.abstain_reason
@@ -118,7 +155,8 @@ def scene_collection(analysis: SceneAnalysis) -> dict[str, Any]:
     """Every slick in a scene as a GeoJSON FeatureCollection."""
     by_id = {a.candidate_id: a for a in analysis.attributions}
     features = [
-        slick_feature(c, by_id.get(c.candidate_id), analysis.scene.scene_id)
+        slick_feature(c, by_id.get(c.candidate_id), analysis.scene.scene_id,
+                      analysis.scene.acquired_at)
         for c in analysis.candidates
     ]
     return {
@@ -213,16 +251,26 @@ def world_index(analyses: list[SceneAnalysis]) -> dict[str, Any]:
         by_id = {a.candidate_id: a for a in analysis.attributions}
         for c in analysis.candidates:
             if c.is_rejected:
-                continue  # the world map shows confirmed oil only
-            features.append(
-                slick_feature(c, by_id.get(c.candidate_id), analysis.scene.scene_id)
-            )
+                continue
+            feature = slick_feature(c, by_id.get(c.candidate_id), analysis.scene.scene_id,
+                                    analysis.scene.acquired_at)
+            tier = feature["properties"].get("confidence_tier")
+            # Only "confirmed" and "probable" are presented as actual oil.
+            # Lower tiers stay available through the per-scene endpoint.
+            if tier in ("confirmed", "probable") or tier == "unknown":
+                features.append(feature)
+    active = [f for f in features if f["properties"].get("activity") == "active"]
+    historical = [f for f in features if f["properties"].get("activity") == "historical"]
+
     return {
         "type": "FeatureCollection",
         "features": features,
         "meta": {
             "n_scenes": len(analyses),
             "n_slicks": len(features),
+            "n_active": len(active),
+            "n_historical": len(historical),
+            "active_window_hours": ACTIVE_WINDOW_HOURS,
             "disclaimer": DISCLAIMER,
             "timeliness": (
                 "Near-real-time: imagery arrives 3-24 h after acquisition and "

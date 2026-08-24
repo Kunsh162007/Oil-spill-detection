@@ -60,6 +60,102 @@ class DiceFocalLoss:
         return dice + focal
 
 
+class ManifestDataset:
+    """Patches read on demand from full scenes via a JSON manifest.
+
+    Materialising 21,744 patches as arrays costs ~5.7 GB; reading each window
+    from its parent GeoTIFF costs nothing extra and is fast enough because
+    rasterio pulls only the requested block off disk.
+
+    Scenes are already Sigma0 dB, so the only preprocessing here is the same
+    fixed-range normalisation the inference path uses - if these differ, the
+    model sees a different distribution at test time than it trained on.
+    """
+
+    def __init__(self, manifest_path, augment: bool = False,
+                 limit: int | None = None, in_channels: int = 2,
+                 balance: bool = True):
+        import json
+        import random
+
+        self.path = Path(manifest_path)
+        if not self.path.exists():
+            raise FileNotFoundError(
+                f"No manifest at {self.path}. Run scripts/prepare_dataset.py first."
+            )
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        entries = data["entries"]
+
+        # The set is ~91% oil-containing patches. Left alone the model learns
+        # "there is always oil"; capping the majority restores a usable ratio.
+        if balance:
+            positives = [e for e in entries if e["class"] == 1]
+            negatives = [e for e in entries if e["class"] == 0]
+            if negatives:
+                rng = random.Random(0)
+                rng.shuffle(positives)
+                keep = min(len(positives), max(len(negatives) * 3, 1))
+                entries = positives[:keep] + negatives
+                rng.shuffle(entries)
+
+        self.entries = entries[:limit] if limit else entries
+        self.patch = data.get("patch_size", 256)
+        self.augment = augment
+        self.in_channels = in_channels
+        self._handles: dict[str, object] = {}
+
+    def __len__(self) -> int:
+        return len(self.entries)
+
+    def _open(self, relative_path: str):
+        """Cache open rasterio handles - reopening per patch dominates runtime."""
+        import rasterio
+
+        if relative_path not in self._handles:
+            self._handles[relative_path] = rasterio.open(REPO_ROOT / relative_path)
+        return self._handles[relative_path]
+
+    def __getitem__(self, idx: int):
+        import numpy as np
+        import rasterio
+        import torch
+
+        from ingest.calibrate import normalise_for_model
+
+        entry = self.entries[idx]
+        size = entry.get("size", self.patch)
+        window = rasterio.windows.Window(entry["col"], entry["row"], size, size)
+
+        image = self._open(entry["image"]).read(1, window=window, boundless=True, fill_value=-35.0)
+        mask = self._open(entry["mask"]).read(1, window=window, boundless=True, fill_value=0.0)
+
+        image = normalise_for_model(image.astype(np.float32))
+        mask = (mask > 0.5).astype(np.int64)
+
+        if image.shape != (size, size):
+            pad = ((0, size - image.shape[0]), (0, size - image.shape[1]))
+            image = np.pad(image, pad, constant_values=0.0)
+            mask = np.pad(mask, pad, constant_values=0)
+
+        image = np.repeat(image[None, ...], self.in_channels, axis=0)
+
+        if self.augment:
+            # Flips and 90-degree rotations only. Elastic or perspective
+            # warping destroys the speckle statistics the model relies on.
+            if np.random.rand() < 0.5:
+                image, mask = image[:, :, ::-1].copy(), mask[:, ::-1].copy()
+            if np.random.rand() < 0.5:
+                image, mask = image[:, ::-1, :].copy(), mask[::-1, :].copy()
+            k = np.random.randint(4)
+            if k:
+                image = np.rot90(image, k, axes=(1, 2)).copy()
+                mask = np.rot90(mask, k).copy()
+            if np.random.rand() < 0.3:
+                image = np.clip(image * np.random.uniform(0.92, 1.08), 0.0, 1.0)
+
+        return torch.from_numpy(image.astype("float32")), torch.from_numpy(mask)
+
+
 class PatchDataset:
     """Image/mask patches from a directory of .npy or image pairs.
 
@@ -161,16 +257,28 @@ def train_segmentation(config, args) -> int:
     run_dir = resolve_path(f"runs/{run_name}")
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    train_ds = PatchDataset(resolve_path(tcfg.get("train_dir", "data/dev/train")),
-                            augment=True, limit=args.limit, in_channels=in_channels)
-    val_ds = PatchDataset(resolve_path(tcfg.get("val_dir", "data/dev/val")),
-                          augment=False, in_channels=in_channels)
+    train_manifest = tcfg.get("train_manifest")
+    if train_manifest:
+        train_ds = ManifestDataset(
+            resolve_path(train_manifest), augment=True,
+            limit=args.limit, in_channels=in_channels,
+        )
+        val_ds = ManifestDataset(
+            resolve_path(tcfg.get("val_manifest", "data/dev/val_manifest.json")),
+            augment=False, in_channels=in_channels,
+            limit=int(tcfg.get("val_limit", 1200)),
+        )
+    else:
+        train_ds = PatchDataset(resolve_path(tcfg.get("train_dir", "data/dev/train")),
+                                augment=True, limit=args.limit, in_channels=in_channels)
+        val_ds = PatchDataset(resolve_path(tcfg.get("val_dir", "data/dev/val")),
+                              augment=False, in_channels=in_channels)
 
     print(f"Run           : {run_name}")
     print(f"Device        : {device}")
     print(f"Architecture  : {arch} / {encoder} (encoder pretrained)")
     print(f"Train / val   : {len(train_ds)} / {len(val_ds)} patches")
-    print(f"Effective bs  : {batch_size} x {accum} = {batch_size*accum}")
+    print(f"Effective bs  : {batch_size} x {accum} = {batch_size*accum}", flush=True)
 
     train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                           num_workers=0, drop_last=True)
@@ -208,7 +316,10 @@ def train_segmentation(config, args) -> int:
                 scaler.step(optimiser)
                 scaler.update()
                 optimiser.zero_grad(set_to_none=True)
-            running += float(loss) * accum
+            running += float(loss.detach()) * accum
+            if step % 25 == 0:
+                print(f"    epoch {epoch} step {step}/{len(train_dl)} "
+                      f"loss {float(loss.detach())*accum:.4f}", flush=True)
 
         model.eval()
         confusion = np.zeros((n_classes, n_classes), dtype=np.int64)
@@ -224,6 +335,9 @@ def train_segmentation(config, args) -> int:
 
         ious = iou_per_class(confusion)
         oil_iou = float(ious[1]) if len(ious) > 1 and not np.isnan(ious[1]) else 0.0
+        names = CLASS_NAMES[:n_classes] if n_classes <= len(CLASS_NAMES) else [
+            f"class_{i}" for i in range(n_classes)
+        ]
         row = {
             "epoch": epoch,
             "train_loss": round(running / max(len(train_dl), 1), 5),
@@ -232,14 +346,14 @@ def train_segmentation(config, args) -> int:
             "mean_iou": round(float(np.nanmean(ious)), 5),
             "per_class_iou": {
                 name: (None if np.isnan(v) else round(float(v), 5))
-                for name, v in zip(CLASS_NAMES, ious)
+                for name, v in zip(names, ious)
             },
             "seconds": round(time.perf_counter() - started, 1),
         }
         history.append(row)
         print(f"  epoch {epoch:3d}  train {row['train_loss']:.4f}  "
               f"val {row['val_loss']:.4f}  OIL IoU {row['oil_iou']:.4f}  "
-              f"mIoU {row['mean_iou']:.4f}  ({row['seconds']}s)")
+              f"mIoU {row['mean_iou']:.4f}  ({row['seconds']}s)", flush=True)
 
         # Selected on OIL IoU, never mean IoU: mIoU is dominated by sea and
         # land, which every model scores in the 90s on.

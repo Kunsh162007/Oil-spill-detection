@@ -1,0 +1,30 @@
+# Fine-tune on the Zenodo Gulf of Mexico oil-spill set (record 4672426,
+# CC-BY-4.0): 14 real Sentinel-1 scenes with binary pixel masks, cross-checked
+# against NOAA incident reports.
+#
+# Two classes, not five. The masks label oil against everything else, so
+# claiming a look-alike or ship class the data cannot supervise would be
+# dishonest - and look-alike rejection is the physics stage's job by design.
+train:
+  arch: unet
+  encoder: resnet34          # Cerulean's choice for this exact task
+  classes: 2                 # 0 = sea/other, 1 = oil
+  in_channels: 2             # VV duplicated; this set is single-pol
+  epochs: 4
+  batch_size: 8
+  grad_accum: 2
+  lr: 0.0003
+  head_only: false
+  train_manifest: data/dev/train_manifest.json
+  val_manifest: data/dev/val_manifest.json
+  val_limit: 400             # keeps per-epoch validation short on CPU
+  train_limit: 2400          # CPU budget; raise on a GPU for the full 8k
+
+detect:
+  arch: unet
+  encoder: resnet34
+  classes: 2
+  checkpoint: models/stage_b.pt
+
+lookalike:
+  model_path: models/lookalike.json

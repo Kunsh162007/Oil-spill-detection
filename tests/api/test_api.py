@@ -49,12 +49,36 @@ class TestWorldIndex:
         assert "not evidence" in client.get("/api/slicks").json()["meta"]["disclaimer"]
 
     def test_geojson_is_lon_lat_ordered(self, client):
-        """Lat/lon inversion silently lands everything in the wrong ocean."""
+        """Lat/lon inversion silently lands everything in the wrong ocean.
+
+        Checked against each detection's own scene bbox rather than a fixed
+        region, so the test stays valid as scenes are added anywhere on Earth.
+        A swapped pair falls outside its scene almost every time.
+        """
+        scenes = {
+            s["scene_id"]: s["bbox"]
+            for s in client.get("/api/scenes").json()["scenes"]
+            if s.get("bbox")
+        }
+        checked = 0
         for feature in client.get("/api/slicks").json()["features"]:
-            coords = feature["geometry"]["coordinates"]
-            lon, lat = (coords[0][0] if feature["geometry"]["type"] == "Polygon" else coords)
-            assert -180 <= lon <= 180 and -90 <= lat <= 90
-            assert 60 < lon < 100 and 0 < lat < 30  # the demo sits off Kerala
+            geometry = feature["geometry"]
+            coords = geometry["coordinates"]
+            lon, lat = coords[0][0] if geometry["type"] == "Polygon" else coords
+            assert -180 <= lon <= 180, f"longitude {lon} out of range"
+            assert -90 <= lat <= 90, f"latitude {lat} out of range"
+
+            bbox = scenes.get(feature["properties"]["scene_id"])
+            if bbox:
+                pad = 0.5  # slicks may sit slightly outside a nominal bbox
+                assert bbox[0] - pad <= lon <= bbox[2] + pad, (
+                    f"lon {lon} outside scene bbox {bbox} - coordinates may be swapped"
+                )
+                assert bbox[1] - pad <= lat <= bbox[3] + pad, (
+                    f"lat {lat} outside scene bbox {bbox} - coordinates may be swapped"
+                )
+                checked += 1
+        assert checked, "no detection could be checked against a scene bbox"
 
     def test_payload_is_strict_json(self, client):
         """NaN is not valid JSON and breaks the browser parser."""

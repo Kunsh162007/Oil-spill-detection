@@ -261,6 +261,275 @@ def backtrace(candidate_id: str):
     })
 
 
+@app.get("/api/slicks/{candidate_id}/timeline")
+def timeline(candidate_id: str, at: str = Query(None, description="ISO time; default now")):
+    """The slick at three moments: where it started, what SAR saw, where it is now.
+
+        origin  --(backward)--  observed  --(forward)--  now
+
+    The present position is what a response vessel needs: imagery is 3-24 h
+    old by the time we see it, so the slick has moved since acquisition.
+    """
+    from datetime import datetime, timezone
+
+    store = get_store()
+    cand, attribution, analysis = _find_candidate(store, candidate_id)
+    if cand is None:
+        raise HTTPException(404, f"Unknown slick: {candidate_id}")
+
+    target = None
+    if at:
+        try:
+            target = datetime.fromisoformat(at)
+            target = target if target.tzinfo else target.replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(400, f"Bad time: {at!r}")
+    target = target or datetime.now(timezone.utc)
+
+    observed_at = analysis.scene.acquired_at
+    config = store._config_for(store.manifest(analysis.scene.scene_id) or {})
+
+    from api.serialize import _wkt_to_coords
+    from drift.forward import DriftState, forward_drift
+    from drift.runner import _parse_polygon, build_fields
+
+    states: list[dict] = []
+
+    # 1. Origin - from the backward run already computed.
+    origin = attribution.origin if attribution else None
+    if origin is not None:
+        states.append(DriftState(
+            label="origin", lon=origin.lon, lat=origin.lat,
+            at=origin.estimated_at, uncertainty_km=origin.uncertainty_km,
+            hours_from_observation=-origin.backtrack_hours,
+            description=(
+                f"estimated release point, {origin.backtrack_hours:.0f} h before "
+                f"acquisition, from backward drift"
+            ),
+        ).to_dict())
+
+    # 2. Observed - what the satellite actually recorded. No modelling.
+    states.append(DriftState(
+        label="observed", lon=cand.centroid[0], lat=cand.centroid[1],
+        at=observed_at, uncertainty_km=0.0, hours_from_observation=0.0,
+        area_km2=cand.area_km2,
+        description="position recorded by Sentinel-1 - an observation, not a model output",
+        polygon=_wkt_to_coords(cand.polygon_wkt),
+    ).to_dict())
+
+    # 3. Now - advected forward from the observation.
+    forward_warnings: list[str] = []
+    forward_reliable = True
+    try:
+        currents, wind_field = build_fields(
+            config, wind_speed_ms=cand.wind.speed_ms,
+            wind_direction_deg=cand.wind.direction_deg,
+        )
+        result = forward_drift(
+            polygon_lonlat=_parse_polygon(cand.polygon_wkt),
+            observed_at=observed_at,
+            until=target,
+            currents=currents,
+            wind=wind_field,
+            timestep_minutes=float(config.get("drift.timestep_minutes", 30.0)),
+            n_particles=int(config.get("drift.n_particles", 200)),
+            diffusion_m2_s=float(config.get("drift.diffusion_m2_s", 5.0)),
+        )
+        states.append(result.state.to_dict())
+        forward_track = result.track
+        forward_warnings = result.warnings
+        forward_reliable = result.reliable
+    except Exception as exc:
+        # Never invent a present position; say the forecast failed.
+        log.error("Forward drift failed for %s: %s", candidate_id, exc)
+        forward_track = []
+        forward_warnings = [f"forward drift unavailable: {exc}"]
+        forward_reliable = False
+
+    return JSONResponse({
+        "candidate_id": candidate_id,
+        "observed_at": observed_at.isoformat(),
+        "target_time": target.isoformat(),
+        "age_hours": round((target - observed_at).total_seconds() / 3600.0, 2),
+        "states": states,
+        "backward_track": (origin.track if origin else []),
+        "forward_track": forward_track,
+        "forward_reliable": forward_reliable,
+        "warnings": forward_warnings,
+        "vessels": [
+            {
+                "rank": i + 1, "mmsi": v.mmsi, "name": v.name,
+                "went_dark": v.went_dark, "score": v.score, "track": v.track,
+            }
+            for i, v in enumerate(attribution.candidates if attribution else [])
+        ],
+        "caveat": (
+            "The present position is advection only - currents and wind, no "
+            "weathering. Uncertainty grows with time since acquisition."
+        ),
+    })
+
+
+@app.get("/api/incidents")
+def incidents(
+    bbox: str = Query(None, description="min_lon,min_lat,max_lon,max_lat"),
+    since: str = Query(None, description="ISO date; default 2014-10-01, the Sentinel-1 era"),
+    until: str = Query(None, description="ISO date"),
+    limit: int = Query(3000, ge=1, le=20000),
+    petroleum_only: bool = Query(True),
+):
+    """Documented oil spills worldwide - CONFIRMED events, not detections.
+
+    This is the layer that makes the map genuinely global. Every entry is a
+    real, recorded incident from a public registry, so it answers "show me
+    actual oil spills" without any model being involved.
+    """
+    store = get_store()
+    registry = store.registry
+    if registry is None:
+        raise HTTPException(
+            503,
+            "Incident registry not loaded. Run: python scripts/fetch_incidents.py",
+        )
+
+    from datetime import datetime, timezone
+
+    def parse(value: str | None, default=None):
+        if not value:
+            return default
+        try:
+            dt = datetime.fromisoformat(value)
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(400, f"Bad date: {value!r}")
+
+    start = parse(since, datetime(2014, 10, 1, tzinfo=timezone.utc))
+    end = parse(until)
+
+    box = None
+    if bbox:
+        try:
+            values = [float(v) for v in bbox.split(",")]
+            if len(values) != 4:
+                raise ValueError
+            box = values
+        except ValueError:
+            raise HTTPException(400, "bbox must be min_lon,min_lat,max_lon,max_lat")
+
+    features, oldest, newest = [], None, None
+    for incident in registry.incidents:
+        if petroleum_only and not incident.is_petroleum:
+            continue
+        if box and not (box[0] <= incident.lon <= box[2] and box[1] <= incident.lat <= box[3]):
+            continue
+        when = incident.occurred_at
+        persistent = bool(incident.extras.get("persistent"))
+        if when is not None and not persistent:
+            if start and when < start:
+                continue
+            if end and when > end:
+                continue
+        if when is not None:
+            oldest = when if oldest is None or when < oldest else oldest
+            newest = when if newest is None or when > newest else newest
+
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [incident.lon, incident.lat]},
+            "properties": {
+                **incident.to_dict(),
+                "persistent": persistent,
+                "natural_seep": bool(incident.extras.get("natural_seep")),
+                "kind": "documented_incident",
+            },
+        })
+        if len(features) >= limit:
+            break
+
+    return JSONResponse({
+        "type": "FeatureCollection",
+        "features": features,
+        "meta": {
+            "count": len(features),
+            "registry_size": len(registry),
+            "date_range": [
+                oldest.isoformat() if oldest else None,
+                newest.isoformat() if newest else None,
+            ],
+            "sources": sorted({i.source for i in registry.incidents}),
+            "note": (
+                "These are CONFIRMED spill events from public incident "
+                "registries, not model detections. Coverage is strongest in "
+                "US waters (NOAA), supplemented by a curated world catalogue."
+            ),
+        },
+    })
+
+
+@app.get("/api/stats")
+def stats():
+    """Dashboard summary across every analysed scene and the incident registry."""
+    store = get_store()
+    from collections import Counter
+
+    analysed, confirmed, rejected, abstained, attributed, dark = 0, 0, 0, 0, 0, 0
+    reject_reasons: Counter[str] = Counter()
+    stage_times: dict[str, float] = {}
+    corroborated = 0
+
+    for scene_id in store.manifests:
+        try:
+            analysis = store.get(scene_id)
+        except Exception:
+            continue
+        analysed += 1
+        confirmed += analysis.stats.get("n_confirmed", 0)
+        rejected += analysis.stats.get("n_rejected", 0)
+        for candidate in analysis.rejected:
+            reason = (candidate.rejected_reason or "").lower()
+            if "wind" in reason:
+                reject_reasons["low or high wind"] += 1
+            elif "internal-wave" in reason:
+                reject_reasons["internal-wave train"] += 1
+            elif "round" in reason or "blob" in reason:
+                reject_reasons["blob shape (bloom)"] += 1
+            elif "granular" in reason or "texture" in reason:
+                reject_reasons["texture (rain cell)"] += 1
+            elif "damping" in reason:
+                reject_reasons["weak damping"] += 1
+            else:
+                reject_reasons["other physics"] += 1
+        for attribution in analysis.attributions:
+            if attribution.abstained:
+                abstained += 1
+            elif attribution.candidates:
+                attributed += 1
+            if any(c.went_dark for c in attribution.candidates):
+                dark += 1
+            if (attribution.evidence.get("corroboration") or {}).get("confirmed"):
+                corroborated += 1
+        for stage, seconds in analysis.timings.items():
+            stage_times[stage] = round(stage_times.get(stage, 0.0) + seconds, 3)
+
+    registry_size = len(store.registry) if store.registry else 0
+    total_decisions = abstained + attributed
+
+    return JSONResponse({
+        "scenes_analysed": analysed,
+        "slicks_confirmed": confirmed,
+        "lookalikes_rejected": rejected,
+        "rejection_reasons": dict(reject_reasons.most_common()),
+        "attributed": attributed,
+        "abstained": abstained,
+        "abstention_rate": round(abstained / total_decisions, 3) if total_decisions else 0.0,
+        "dark_vessel_flags": dark,
+        "corroborated_by_registry": corroborated,
+        "documented_incidents": registry_size,
+        "stage_seconds": stage_times,
+        "total_seconds": round(sum(stage_times.values()), 2),
+    })
+
+
 @app.get("/api/cerulean")
 def cerulean(
     bbox: str = Query(None, description="min_lon,min_lat,max_lon,max_lat"),

@@ -1,0 +1,16 @@
+{
+  "generated_at": "2026-08-24T08:14:10.476210+00:00",
+  "total_incidents": 3380,
+  "petroleum_incidents": 3379,
+  "sentinel1_era": 1403,
+  "bbox": [
+    -179.55,
+    -78.0,
+    178.692,
+    71.298
+  ],
+  "sources": [
+    "NOAA IncidentNews",
+    "curated world catalogue"
+  ]
+}

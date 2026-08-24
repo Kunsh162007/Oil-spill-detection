@@ -25,17 +25,39 @@ class AnalysisStore:
 
     def __init__(self, config: Config) -> None:
         self.config = config
+        self.registry = self._load_registry(config)
         self._analyses: dict[str, SceneAnalysis] = {}
         self._manifests: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
         self._errors: dict[str, str] = {}
+
+    @staticmethod
+    def _load_registry(config: Config):
+        """Documented-incident registry, shared by every scene analysis.
+
+        Absence is not fatal - the pipeline still detects - but corroboration
+        and the world incident layer both go quiet, so it is logged loudly.
+        """
+        from detect.incidents import load_registry
+
+        path = resolve_path(config.get("incidents.path", "data/reference/noaa_incidents.csv"))
+        try:
+            registry = load_registry(path if path.exists() else None)
+        except Exception as exc:
+            log.error("Incident registry unavailable (%s). Run scripts/fetch_incidents.py", exc)
+            return None
+        setattr(config, "_incident_registry", registry)
+        log.info("Incident registry ready: %d documented spills", len(registry))
+        return registry
 
     # -- discovery ---------------------------------------------------------
 
     def discover(self, roots: list[str] | None = None) -> list[dict[str, Any]]:
         """Find scene manifests on disk. A manifest is a JSON file with a
         scene_id, a bbox and a vv_path."""
-        roots = roots or ["data/demo_internal", "data/demo_finale", "data/dev"]
+        roots = roots or [
+            "data/demo_internal", "data/demo_finale", "data/dev", "data/dev/scenes",
+        ]
         found: list[dict[str, Any]] = []
         for root in roots:
             base = resolve_path(root)
@@ -102,7 +124,14 @@ class AnalysisStore:
     def _config_for(self, data: dict[str, Any]) -> Config:
         """Per-scene config override, when the manifest names one."""
         cfg_name = data.get("config")
-        return load_config(cfg_name) if cfg_name else self.config
+        if not cfg_name:
+            return self.config
+        config = load_config(cfg_name)
+        # The override is a fresh Config object, so it needs the registry too;
+        # without this, corroboration silently vanishes for those scenes.
+        if self.registry is not None:
+            setattr(config, "_incident_registry", self.registry)
+        return config
 
     def _ais_for(self, data: dict[str, Any]):
         """AIS source for a scene: a local CSV, GFW, or none."""

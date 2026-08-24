@@ -3,43 +3,82 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23ff5c39'/%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff5b32'/%3E%3Cellipse cx='16' cy='17' rx='9' ry='5' fill='%23070b11' opacity='.75'/%3E%3C/svg%3E" />
   <title>Oil Spill Detection &amp; Vessel Attribution</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;650;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/app.css" />
 </head>
 <body>
   <div id="app">
-    <div style="position:relative">
+    <div class="map-wrap">
       <div class="topbar">
         <div class="brand">
-          <h1>Oil Spill Detection &amp; Vessel Attribution</h1>
+          <div class="brand-mark"></div>
+          <div>
+            <h1>Oil Spill Detection &amp; Vessel Attribution</h1>
+          </div>
           <span class="tag">SIH 2026 &middot; SIH26143 &middot; NTRO</span>
         </div>
-        <div class="timeliness" id="timeliness">near-real-time &middot; not live</div>
+        <div class="topbar-right">
+          <span class="chip" id="chip-backend">loading&hellip;</span>
+          <span class="chip warn" id="chip-timeliness">near-real-time</span>
+        </div>
       </div>
+
       <div id="map"></div>
-      <div class="legend">
-        <h4>Legend</h4>
-        <div class="legend-row"><span class="swatch dot" style="background:#ff5c39"></span> Confirmed oil slick</div>
-        <div class="legend-row"><span class="swatch dot" style="background:#6b7a90"></span> Rejected look-alike</div>
-        <div class="legend-row"><span class="swatch dot" style="background:#35d0ba"></span> Estimated origin</div>
-        <div class="legend-row"><span class="swatch" style="background:#35d0ba"></span> Backward drift path</div>
-        <div class="legend-row"><span class="swatch" style="background:#4c8dff"></span> Vessel track</div>
-        <div class="legend-row"><span class="swatch" style="background:#c65cff"></span> Track with AIS gap</div>
+
+      <div class="layer-panel">
+        <h4>Map layers</h4>
+        <label class="layer-row">
+          <input type="checkbox" id="layer-slicks" checked />
+          <span class="swatch dot" style="background:#ff5b32"></span>
+          Active detections <span class="layer-count" id="count-slicks">0</span>
+        </label>
+        <label class="layer-row">
+          <input type="checkbox" id="layer-past" checked />
+          <span class="swatch dot" style="background:#9a6b5a"></span>
+          Past detections <span class="layer-count" id="count-past">0</span>
+        </label>
+        <label class="layer-row">
+          <input type="checkbox" id="layer-rejected" />
+          <span class="swatch dot" style="background:#5f7488"></span>
+          Rejected look-alikes <span class="layer-count" id="count-rejected">0</span>
+        </label>
+        <label class="layer-row">
+          <input type="checkbox" id="layer-incidents" checked />
+          <span class="swatch dot" style="background:#f472b6"></span>
+          Documented spills <span class="layer-count" id="count-incidents">0</span>
+        </label>
+        <div style="height:1px;background:var(--line);margin:8px 0"></div>
+        <div class="layer-row" style="cursor:default">
+          <span class="swatch" style="background:#2dd4bf"></span> Backward drift
+        </div>
+        <div class="layer-row" style="cursor:default">
+          <span class="swatch" style="background:#4c8dff"></span> Vessel route
+        </div>
+        <div class="layer-row" style="cursor:default">
+          <span class="swatch" style="background:#c084fc"></span> AIS gap (dark)
+        </div>
       </div>
     </div>
 
     <aside id="panel">
       <div class="panel-head">
-        <h2 id="panel-title">Detected slicks</h2>
+        <div class="panel-title">
+          <h2 id="panel-title">Overview</h2>
+        </div>
         <p id="panel-sub">Loading&hellip;</p>
+        <div class="tabs" id="tabs">
+          <button class="tab active" data-tab="overview">Overview</button>
+          <button class="tab" data-tab="active">Active<span class="tab-badge" id="badge-active">0</span></button>
+          <button class="tab" data-tab="past">Past incidents</button>
+        </div>
       </div>
       <div class="panel-body" id="panel-body">
-        <div class="spinner">Analysing scenes&hellip;</div>
+        <div class="spinner">Analysing scenes</div>
       </div>
     </aside>
   </div>

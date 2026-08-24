@@ -249,12 +249,49 @@ def _attribute_one(
     from drift.runner import build_fields, run_backward_drift
 
     extra: dict[str, Any] = {"morphology_reason": morph.reason}
+
+    # Independent confirmation. A detection coinciding with a documented spill
+    # is supported from OUTSIDE the model entirely, which is the strongest
+    # confidence signal available - and the main defence against presenting a
+    # look-alike as a real spill.
+    registry = getattr(config, "_incident_registry", None)
+    if registry is not None:
+        lon, lat = cand.centroid
+        matches = registry.find(lon, lat, scene.acquired_at)
+        extra["corroboration"] = {
+            "confirmed": bool(matches),
+            "n_matches": len(matches),
+            "matches": [m.to_dict() for m in matches[:3]],
+            "note": (
+                "Cross-referenced against documented spill registries. A match "
+                "means an independently recorded incident occurred here at "
+                "about this time."
+            ),
+        }
     if morph.matched_source is not None:
         extra["matched_source"] = {
             "name": morph.matched_source.name,
             "kind": morph.matched_source.kind,
             "note": morph.matched_source.note,
         }
+
+    # Grade how sure we are this is actually oil, combining the physics with
+    # the independent registry. This is what the UI filters on, so a weakly
+    # supported patch is never presented as a spill.
+    from detect.confidence import assess
+
+    assessment = assess(
+        p_oil=cand.p_oil,
+        wind_window_score=cand.wind.window_score,
+        damping_ratio=cand.damping_ratio,
+        elongation=cand.elongation,
+        area_km2=cand.area_km2,
+        morphology=cand.morphology,
+        rejected_reason=cand.rejected_reason,
+        corroboration=extra.get("corroboration"),
+        source_type=morph.source_type,
+    )
+    extra["confidence"] = assessment.to_dict()
 
     # Rejected look-alikes and fixed sources never reach vessel attribution.
     if cand.is_rejected or morph.source_type in ("natural_seep", "infrastructure"):
