@@ -89,11 +89,21 @@ class TestWorldIndex:
 
 class TestSceneEndpoint:
     def test_scene_includes_rejected_lookalikes_and_reasons(self, client):
-        scene_id = client.get("/api/scenes").json()["scenes"][0]["scene_id"]
-        data = client.get(f"/api/scenes/{scene_id}").json()
-        rejected = [f for f in data["features"] if not f["properties"]["is_oil"]]
-        assert rejected, "the scene view should show what was rejected, and why"
-        assert all(f["properties"]["rejected_reason"] for f in rejected)
+        """Whichever scene has rejections must explain every one of them.
+
+        Not every scene contains look-alikes, so this searches for one that
+        does rather than assuming a particular scene sorts first.
+        """
+        checked = False
+        for scene in client.get("/api/scenes").json()["scenes"]:
+            data = client.get(f"/api/scenes/{scene['scene_id']}").json()
+            rejected = [f for f in data["features"] if not f["properties"]["is_oil"]]
+            if not rejected:
+                continue
+            assert all(f["properties"]["rejected_reason"] for f in rejected)
+            checked = True
+            break
+        assert checked, "no scene contained a rejected look-alike to inspect"
 
     def test_unknown_scene_404s(self, client):
         assert client.get("/api/scenes/NO_SUCH_SCENE").status_code == 404
@@ -102,15 +112,30 @@ class TestSceneEndpoint:
 class TestDetailAndBacktrace:
     @pytest.fixture(scope="class")
     def candidate_id(self, client):
+        """Any detection - used for tests that do not need AIS."""
         return client.get("/api/slicks").json()["features"][0]["properties"]["candidate_id"]
 
-    def test_detail_ranks_vessels(self, client, candidate_id):
-        data = client.get(f"/api/slicks/{candidate_id}").json()
+    @pytest.fixture(scope="class")
+    def attributed_id(self, client):
+        """A detection that actually has ranked vessels behind it.
+
+        Scenes without AIS coverage correctly abstain and rank nobody, so a
+        vessel test has to seek out one that had tracks to work with.
+        """
+        for feature in client.get("/api/slicks").json()["features"]:
+            cid = feature["properties"]["candidate_id"]
+            detail = client.get(f"/api/slicks/{cid}").json()
+            if detail.get("vessels"):
+                return cid
+        pytest.skip("no detection has AIS coverage; run scripts/fetch_ais.py")
+
+    def test_detail_ranks_vessels(self, client, attributed_id):
+        data = client.get(f"/api/slicks/{attributed_id}").json()
         assert data["vessels"]
         assert [v["rank"] for v in data["vessels"]] == list(range(1, len(data["vessels"]) + 1))
 
-    def test_each_vessel_has_readable_evidence(self, client, candidate_id):
-        for vessel in client.get(f"/api/slicks/{candidate_id}").json()["vessels"]:
+    def test_each_vessel_has_readable_evidence(self, client, attributed_id):
+        for vessel in client.get(f"/api/slicks/{attributed_id}").json()["vessels"]:
             assert len(vessel["evidence"]) > 30
             for key in ("parity", "proximity", "temporality"):
                 assert 0.0 <= vessel[key] <= 1.0
@@ -134,8 +159,8 @@ class TestDetailAndBacktrace:
         assert "weathering" in data["caveat"].lower()
         assert data["uncertainty_km"] > 0
 
-    def test_vessel_tracks_included_for_the_map(self, client, candidate_id):
-        data = client.get(f"/api/slicks/{candidate_id}/backtrace").json()
+    def test_vessel_tracks_included_for_the_map(self, client, attributed_id):
+        data = client.get(f"/api/slicks/{attributed_id}/backtrace").json()
         assert any(len(v["track"]) > 1 for v in data["vessels"])
 
     def test_unknown_slick_404s(self, client):

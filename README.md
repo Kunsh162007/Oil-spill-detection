@@ -14,6 +14,20 @@ engineering contract.
 
 ## Quick start
 
+### Getting real imagery — no account needed
+
+The Copernicus Data Space Ecosystem asks for a free account to download. If
+its registration page will not render for you, skip it: an account is only
+required for CDSE *downloads*. The catalogue search is open, and **AWS Open
+Data mirrors the same Sentinel-1 products with no credentials at all**.
+
+```bash
+python scripts/fetch_aws.py --bbox 68,8,78,20 --days 3
+```
+
+Scenes are read windowed over HTTP rather than downloaded whole, so three
+live dual-pol scenes cost about 47 MB instead of ~3 GB.
+
 ```bash
 # 1. Environment (Python 3.11 — PyTorch and rasterio do not support 3.14)
 py -3.11 -m venv .venv
@@ -162,7 +176,7 @@ class, which every model scores in the 90s on.
 |---|---|
 | **Look-alike weights are hand-set priors**, not fitted. Announced loudly at startup. | Yang et al. PANGAEA dataset → `scripts/train.py --stage lookalike` |
 | **Wind and currents are synthetic or climatological** in the demo configs. Every drift origin is tagged accordingly. | `scripts/fetch_wind.py` (ERA5) and CMEMS credentials |
-| **No active detections** — all imagery on disk is from 2018–2025, so everything is filed as a past incident. | `scripts/fetch_sentinel.py` for imagery from the last 72 h |
+| **Live imagery ages out** — a detection is only active for 72 h. | Re-run `scripts/fetch_aws.py` (no account) for fresh scenes |
 | **GPU unavailable** on this machine (disk-constrained); trained on CPU. | Free ~6 GB, reinstall torch from the cu128 index |
 | **OpenDrift not installed** (conda-first). Analytical RK4 integrator used instead. | `pip install opendrift`, or accept the fallback |
 | **Cerulean API now requires a key** — CLAUDE.md assumed it was open; it returns 403 as of this build. | Request access, or rely on the NOAA registry (already integrated) |
