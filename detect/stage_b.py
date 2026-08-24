@@ -276,6 +276,7 @@ def run_stage_b(
                 arch=det.get("arch", "unet"),
                 encoder=det.get("encoder", "resnet34"),
                 in_channels=len(ingest.grid.meta.get("channels", ["vv"])),
+                classes=int(det.get("classes", 5)),
             )
             preds = model.predict_tiles(
                 ingest.grid,
@@ -283,16 +284,25 @@ def run_stage_b(
                 keep_indices=keep_indices,
             )
             merged = merge_predictions(ingest.grid, preds)  # (C, H, W)
+            # A model trained on binary masks has two classes, not five. Only
+            # index the heads it actually has: oil is class 1 under either
+            # scheme, but look-alike and ship exist only in the 5-class one.
+            n_classes = merged.shape[0]
             elapsed = time.perf_counter() - started
             return SegmentationResult(
                 oil_probability=merged[OIL_CLASS],
-                lookalike_probability=merged[LOOKALIKE_CLASS],
-                ship_probability=merged[SHIP_CLASS],
+                lookalike_probability=(
+                    merged[LOOKALIKE_CLASS] if n_classes > LOOKALIKE_CLASS else None
+                ),
+                ship_probability=(
+                    merged[SHIP_CLASS] if n_classes > SHIP_CLASS else None
+                ),
                 backend=f"{det.get('arch','unet')}-{det.get('encoder','resnet34')}",
                 class_map=np.argmax(merged, axis=0).astype(np.uint8),
                 stats={
                     "elapsed_s": round(elapsed, 2),
                     "device": model.device,
+                    "classes": n_classes,
                     "tiles_run": len(keep_indices) if keep_indices else len(ingest.grid),
                     "checkpoint": str(ckpt_path),
                 },

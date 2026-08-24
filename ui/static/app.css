@@ -444,3 +444,13 @@ html, body {
 
 .slick-card.past { border-left: 3px solid #9a6b5a; }
 .pill.past { background: rgba(154,107,90,.2); color: #c89178; }
+
+/* Long mono readouts truncate cleanly rather than cut mid-word. */
+.kv dd.mono {
+  max-width: 200px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notice code {
+  font-family: var(--mono); font-size: 10px;
+  background: rgba(255, 255, 255, .05); padding: 1px 4px; border-radius: 3px;
+}

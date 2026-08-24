@@ -19,6 +19,14 @@ ingest:
   speckle_window: 7
 
 detect:
+  classes: 2                 # the trained checkpoint is binary (sea / oil)
+  # The fine-tuned U-Net scores Oil IoU 0.70 on balanced patches but
+  # over-predicts badly on whole scenes, where its overlap with the reference
+  # masks collapses. Until that is fixed the pipeline uses the classical
+  # detector, which is currently producing corroborated detections here.
+  # models/stage_b_patchonly.pt holds that checkpoint; point this at it to
+  # evaluate the network once scene-level performance has been measured.
+  checkpoint: models/stage_b.pt
   stage_a_threshold: 0.12
   stage_b_threshold: 0.55
   min_area_km2: 0.02         # matches the real slick sizes in this dataset

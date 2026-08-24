@@ -279,6 +279,11 @@ function renderTab(name) {
     t.classList.toggle("active", t.dataset.tab === name));
   clearDetail();
   state.current = null;
+  state.timeline = null;
+  if (state.fromDetail) {
+    fitToData();
+    state.fromDetail = false;
+  }
 
   if (name === "overview") renderOverview();
   else if (name === "active") renderActive();
@@ -315,7 +320,7 @@ function renderOverview() {
       </div>
       <div class="stat warn">
         <div class="stat-value">${Math.round((s.abstention_rate ?? 0) * 100)}%</div>
-        <div class="stat-label">Abstention rate</div>
+        <div class="stat-label">Abstained</div>
       </div>
     </div>
 
@@ -335,7 +340,8 @@ function renderOverview() {
     <div class="section">
       <h3>System state</h3>
       <dl class="kv">
-        <dt>Segmentation</dt><dd class="mono">${esc(b.segmentation || "--").slice(0, 34)}</dd>
+        <dt>Segmentation</dt><dd class="mono" title="${esc(b.segmentation || "")}">${
+          esc((b.segmentation || "--").split(" (")[0])}</dd>
         <dt>Drift model</dt><dd class="mono">${esc(b.drift || "--")}</dd>
         <dt>Wind source</dt><dd class="mono">${esc(b.wind || "--")}</dd>
         <dt>Currents</dt><dd class="mono">${esc(b.currents || "--")}</dd>
@@ -355,6 +361,14 @@ function renderOverview() {
           .join("")}
         <dt><b>Total</b></dt><dd><b>${fmt(s.total_seconds, 2)} s</b></dd>
       </dl>
+    </div>` : ""}
+
+    ${(s.abstention_rate ?? 0) > 0.9 ? `
+    <div class="notice caution" style="margin-top:0;margin-bottom:14px">
+      <b>Almost everything abstains right now.</b> These scenes have no AIS
+      coverage loaded, so there is nobody to rank against the drift origin.
+      That is a missing input, not an uncertain model &mdash; run
+      <code>scripts/fetch_ais.py</code> to supply it.
     </div>` : ""}
 
     <div class="notice caution">
@@ -549,6 +563,7 @@ async function openDetail(candidateId) {
     return;
   }
   state.current = { detail, trace };
+  state.fromDetail = true;
   renderDetailPanel(detail, trace);
   drawDetailMap(detail, trace);
 }
