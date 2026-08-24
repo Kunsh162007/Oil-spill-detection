@@ -1,0 +1,25 @@
+# Model selection sweep. The latency ceiling is declared HERE, before any run,
+# so the choice cannot be rationalised afterwards.
+bakeoff:
+  latency_ceiling_seconds: 120     # a full Sentinel-1 GRD scene, end to end
+  tiles_per_scene: 340             # a typical IW GRD at 80 m/px, after cascade
+  preprocess_seconds: 12
+  sample_sizes: [50, 100, 200]
+  seeds: [0, 1, 2]
+  out_dir: runs/bakeoff
+  candidates:
+    - {arch: unet,         encoder: resnet34}         # default; all must beat it
+    - {arch: segformer,    encoder: mit_b0}           # primary challenger
+    - {arch: deeplabv3plus, encoder: resnet34}        # published baseline
+    - {arch: unet,         encoder: efficientnet-b0}  # efficiency-oriented
+    - {arch: unet,         encoder: mobilenet_v2}     # maps the frontier
+
+train:
+  train_dir: data/dev/train
+  val_dir: data/dev/val
+  epochs: 20
+  batch_size: 4
+  grad_accum: 4
+  lr: 0.0003
+  classes: 5
+  in_channels: 2

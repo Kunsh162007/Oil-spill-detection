@@ -1,0 +1,9 @@
+# Deep learning stack — installed separately (large download).
+# CUDA 12.1 wheels for RTX 4060; falls back to CPU automatically at runtime.
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch>=2.2
+torchvision>=0.17
+segmentation-models-pytorch>=0.3.3
+timm>=0.9
+albumentations>=1.4
+transformers>=4.40

@@ -1,0 +1,129 @@
+"""API contract. The UI depends on these shapes; so does the demo."""
+
+from __future__ import annotations
+
+import json
+import math
+
+import pytest
+from fastapi.testclient import TestClient
+
+pytestmark = pytest.mark.slow
+
+
+@pytest.fixture(scope="module")
+def client(request):
+    import api.main as main
+
+    with TestClient(main.app) as c:
+        yield c
+
+
+class TestHealth:
+    def test_reports_which_backends_are_real(self, client):
+        """A stubbed stage must never be reported as a trained model."""
+        data = client.get("/api/health").json()
+        assert data["status"] == "ok"
+        assert "segmentation" in data["backends"]
+        assert "drift" in data["backends"]
+
+    def test_states_the_timeliness_limit(self, client):
+        """CLAUDE.md rule 2: never say real-time."""
+        data = client.get("/api/health").json()
+        assert "near-real-time" in data["timeliness"]
+        blob = json.dumps(data).lower()
+        assert "real-time" not in blob.replace("near-real-time", "")
+
+
+class TestWorldIndex:
+    def test_lists_confirmed_slicks(self, client):
+        data = client.get("/api/slicks").json()
+        assert data["type"] == "FeatureCollection"
+        assert data["meta"]["n_slicks"] >= 1
+
+    def test_rejected_lookalikes_stay_off_the_world_map(self, client):
+        data = client.get("/api/slicks").json()
+        assert all(f["properties"]["is_oil"] for f in data["features"])
+
+    def test_carries_the_disclaimer(self, client):
+        assert "not evidence" in client.get("/api/slicks").json()["meta"]["disclaimer"]
+
+    def test_geojson_is_lon_lat_ordered(self, client):
+        """Lat/lon inversion silently lands everything in the wrong ocean."""
+        for feature in client.get("/api/slicks").json()["features"]:
+            coords = feature["geometry"]["coordinates"]
+            lon, lat = (coords[0][0] if feature["geometry"]["type"] == "Polygon" else coords)
+            assert -180 <= lon <= 180 and -90 <= lat <= 90
+            assert 60 < lon < 100 and 0 < lat < 30  # the demo sits off Kerala
+
+    def test_payload_is_strict_json(self, client):
+        """NaN is not valid JSON and breaks the browser parser."""
+        raw = client.get("/api/slicks").text
+        json.loads(raw)  # strict by default: NaN would raise
+        assert "NaN" not in raw and "Infinity" not in raw
+
+
+class TestSceneEndpoint:
+    def test_scene_includes_rejected_lookalikes_and_reasons(self, client):
+        scene_id = client.get("/api/scenes").json()["scenes"][0]["scene_id"]
+        data = client.get(f"/api/scenes/{scene_id}").json()
+        rejected = [f for f in data["features"] if not f["properties"]["is_oil"]]
+        assert rejected, "the scene view should show what was rejected, and why"
+        assert all(f["properties"]["rejected_reason"] for f in rejected)
+
+    def test_unknown_scene_404s(self, client):
+        assert client.get("/api/scenes/NO_SUCH_SCENE").status_code == 404
+
+
+class TestDetailAndBacktrace:
+    @pytest.fixture(scope="class")
+    def candidate_id(self, client):
+        return client.get("/api/slicks").json()["features"][0]["properties"]["candidate_id"]
+
+    def test_detail_ranks_vessels(self, client, candidate_id):
+        data = client.get(f"/api/slicks/{candidate_id}").json()
+        assert data["vessels"]
+        assert [v["rank"] for v in data["vessels"]] == list(range(1, len(data["vessels"]) + 1))
+
+    def test_each_vessel_has_readable_evidence(self, client, candidate_id):
+        for vessel in client.get(f"/api/slicks/{candidate_id}").json()["vessels"]:
+            assert len(vessel["evidence"]) > 30
+            for key in ("parity", "proximity", "temporality"):
+                assert 0.0 <= vessel[key] <= 1.0
+
+    def test_backtrace_frames_run_oldest_first(self, client, candidate_id):
+        """The UI plays them forward, so the oil must travel the way it did."""
+        data = client.get(f"/api/slicks/{candidate_id}/backtrace").json()
+        frames = data["frames"]
+        assert len(frames) > 2
+        assert frames[0]["hours_before"] > frames[-1]["hours_before"]
+        assert frames[-1]["hours_before"] == 0.0
+
+    def test_every_frame_carries_a_timestamp(self, client, candidate_id):
+        """The demo shows the date and time as the oil crawls back."""
+        for frame in client.get(f"/api/slicks/{candidate_id}/backtrace").json()["frames"]:
+            assert "T" in frame["at"]
+            assert -180 <= frame["lon"] <= 180
+
+    def test_backtrace_states_its_limits(self, client, candidate_id):
+        data = client.get(f"/api/slicks/{candidate_id}/backtrace").json()
+        assert "weathering" in data["caveat"].lower()
+        assert data["uncertainty_km"] > 0
+
+    def test_vessel_tracks_included_for_the_map(self, client, candidate_id):
+        data = client.get(f"/api/slicks/{candidate_id}/backtrace").json()
+        assert any(len(v["track"]) > 1 for v in data["vessels"])
+
+    def test_unknown_slick_404s(self, client):
+        assert client.get("/api/slicks/NOPE-999").status_code == 404
+
+
+class TestUI:
+    def test_index_is_served(self, client):
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "Oil Spill Detection" in response.text
+
+    def test_static_assets_are_served(self, client):
+        assert client.get("/static/app.js").status_code == 200
+        assert client.get("/static/app.css").status_code == 200

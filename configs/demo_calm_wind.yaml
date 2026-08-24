@@ -1,0 +1,33 @@
+# The low-wind look-alike scene (PROJECT.md section 7, finale demo #2).
+# A naive detector calls the dark patch oil. Our wind check rejects it,
+# because below ~3 m/s calm water is indistinguishable from a slick.
+stubs:
+  stage_b: false
+
+ingest:
+  target_resolution_m: 80.0
+  tile_size: 512
+  tile_overlap: 0.25
+  speckle_filter: refined_lee
+
+detect:
+  stage_a_threshold: 0.12
+  stage_b_threshold: 0.55
+  min_area_km2: 0.15
+
+wind:
+  source: constant
+  speed_ms: 1.4          # well below the detection floor
+  direction_deg: 270.0
+  label: ERA5-demo
+
+lookalike:
+  p_oil_threshold: 0.5
+
+drift:
+  currents_source: synthetic
+  backtrack_hours: 12.0
+  n_particles: 200
+
+decision:
+  abstain_margin: 0.08

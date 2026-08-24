@@ -1,0 +1,68 @@
+{
+  "scene_id": "SYNTH_DEMO_001",
+  "SYNTHETIC": true,
+  "config": null,
+  "scenario": "bilge dump",
+  "note": "Generated for pipeline testing. Never report numbers from this scene.",
+  "acquired_at": "2025-05-25T05:42:00+00:00",
+  "bbox": [
+    75.2,
+    9.05,
+    75.8,
+    9.65
+  ],
+  "vv_path": "data\\demo_internal\\SYNTH_DEMO_001_vv.tif",
+  "vh_path": "data\\demo_internal\\SYNTH_DEMO_001_vh.tif",
+  "ais_path": "data\\demo_internal\\SYNTH_DEMO_001_ais.csv",
+  "orbit_direction": "DESCENDING",
+  "truth": {
+    "bilge_dump": {
+      "kind": "oil",
+      "morphology": "linear",
+      "row_range": [
+        420,
+        515
+      ],
+      "col_range": [
+        250,
+        1150
+      ],
+      "expected": "ACCEPT - real oil from a moving vessel"
+    },
+    "algal_bloom": {
+      "kind": "lookalike",
+      "subtype": "biogenic_film",
+      "centre_rc": [
+        980,
+        380
+      ],
+      "expected": "REJECT - round blob, weak damping"
+    },
+    "rain_cell": {
+      "kind": "lookalike",
+      "subtype": "rain_cell",
+      "centre_rc": [
+        300,
+        1050
+      ],
+      "expected": "REJECT - circular with granular texture"
+    },
+    "internal_waves": {
+      "kind": "lookalike",
+      "subtype": "internal_waves",
+      "row_range": [
+        1150,
+        1330
+      ],
+      "col_range": [
+        600,
+        1250
+      ],
+      "expected": "REJECT - regular periodic banding"
+    }
+  },
+  "expected_origin": {
+    "lon": 75.30714,
+    "lat": 9.46571
+  }
+}

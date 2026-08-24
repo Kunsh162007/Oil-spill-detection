@@ -1,0 +1,46 @@
+# Synthetic end-to-end demo. Everything here is tagged SYNTHETIC and must
+# never be used for a reported number.
+stubs:
+  stage_b: false        # use the classical detector, not a stub
+
+ingest:
+  target_resolution_m: 80.0
+  tile_size: 512
+  tile_overlap: 0.25
+  speckle_filter: refined_lee
+  speckle_window: 7
+
+detect:
+  stage_a_threshold: 0.12
+  stage_b_threshold: 0.55
+  min_area_km2: 0.15
+  classical_sensitivity: 2.0
+
+wind:
+  source: synthetic
+  base_speed_ms: 5.5
+  variation_ms: 2.0
+  direction_deg: 225.0
+
+lookalike:
+  p_oil_threshold: 0.5
+  model_path: models/lookalike.json
+
+drift:
+  backend: auto
+  currents_source: synthetic
+  backtrack_hours: 12.0
+  timestep_minutes: 30.0
+  n_particles: 300
+  diffusion_m2_s: 5.0
+  wind_drift_factor: 0.03
+
+attribute:
+  search_radius_km: 50.0
+  top_n: 3
+  ais_window_before_h: 8.0
+  gap_min_minutes: 30.0
+
+decision:
+  abstain_margin: 0.08
+  min_top_score: 0.35

@@ -1,0 +1,23 @@
+# Baseline segmentation training. Vary ONLY the architecture when comparing;
+# everything else here stays fixed so the bake-off measures the model.
+train:
+  arch: unet
+  encoder: resnet34          # Cerulean's choice for this exact task
+  classes: 5                 # sea, oil, look-alike, ship, land
+  in_channels: 2             # VV + VH (VV duplicated on single-pol scenes)
+  epochs: 40
+  batch_size: 4
+  grad_accum: 4              # effective batch 16, fits an 8 GB GPU
+  lr: 0.0003
+  head_only: false           # set true to freeze the encoder on a smaller GPU
+  train_dir: data/dev/train
+  val_dir: data/dev/val
+  lookalike_features: data/dev/lookalike_features.csv
+
+detect:
+  arch: unet
+  encoder: resnet34
+  checkpoint: models/stage_b.pt
+
+lookalike:
+  model_path: models/lookalike.json

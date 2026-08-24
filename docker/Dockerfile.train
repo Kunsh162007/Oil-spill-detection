@@ -1,0 +1,46 @@
+# Training image. CUDA base, pinned dependencies.
+#
+#   docker build -t oilspill-train -f docker/Dockerfile.train .
+#   docker run --gpus all -v $(pwd)/data:/app/data -v $(pwd)/runs:/app/runs \
+#     oilspill-train --config configs/train_baseline.yaml
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+# GDAL and PROJ are needed by rasterio and pyproj; the rest is build tooling.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-dev python3-pip \
+        libgdal-dev gdal-bin libproj-dev proj-data proj-bin \
+        libgl1 libglib2.0-0 git \
+    && apt-get clean
+
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python
+
+WORKDIR /app
+
+# Dependencies first, so a source edit does not invalidate the layer.
+COPY requirements.txt requirements-ml.txt ./
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r requirements.txt \
+    && python -m pip install -r requirements-ml.txt
+
+COPY core/ core/
+COPY ingest/ ingest/
+COPY detect/ detect/
+COPY drift/ drift/
+COPY attribute/ attribute/
+COPY decision/ decision/
+COPY api/ api/
+COPY scripts/ scripts/
+COPY configs/ configs/
+
+ENV PYTHONPATH=/app
+
+# data/ and runs/ are mounted at run time, never baked into the image.
+VOLUME ["/app/data", "/app/runs"]
+
+ENTRYPOINT ["python", "scripts/train.py"]
+CMD ["--config", "configs/train_baseline.yaml"]

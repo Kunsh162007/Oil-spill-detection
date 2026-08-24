@@ -1,0 +1,8 @@
+# Heavy / credentialed extras. The pipeline degrades gracefully without them.
+# OpenDrift is conda-first; pip install may need GDAL preinstalled.
+opendrift>=1.11        # drift/ real backend (fallback advection used if absent)
+copernicusmarine>=1.3  # ocean currents
+cdsapi>=0.7            # ERA5 wind
+xarray>=2024.1
+netCDF4>=1.6
+asf-search>=7.0        # alternate Sentinel-1 source
