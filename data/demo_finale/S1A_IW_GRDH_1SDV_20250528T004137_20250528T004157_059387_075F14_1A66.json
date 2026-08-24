@@ -1,0 +1,18 @@
+{
+  "scene_id": "S1A_IW_GRDH_1SDV_20250528T004137_20250528T004157_059387_075F14_1A66",
+  "label": "MSC ELSA 3",
+  "acquired_at": "2025-05-28T00:41:37.669955+00:00",
+  "bbox": [
+    75.369999,
+    8.153041,
+    76.616679,
+    8.983195
+  ],
+  "vv_path": "data\\demo_finale\\S1A_IW_GRDH_1SDV_20250528T004137_20250528T004157_059387_075F14_1A66_vv.tif",
+  "vh_path": "data\\demo_finale\\S1A_IW_GRDH_1SDV_20250528T004137_20250528T004157_059387_075F14_1A66_vh.tif",
+  "orbit_direction": "UNKNOWN",
+  "config": "configs/elsa3.yaml",
+  "REAL_IMAGERY": true,
+  "source": "AWS Open Data sentinel-s1-l1c (public, no credentials)",
+  "age_hours_at_fetch": 71.3
+}

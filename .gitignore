@@ -22,3 +22,5 @@ data/raw/
 data/reference/*.csv
 data/dev/*_manifest.json
 data/dev/scenes/
+data/live/
+data/demo_finale/*.tif

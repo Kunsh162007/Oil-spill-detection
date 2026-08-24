@@ -79,6 +79,11 @@ function initMap() {
   state.layers.incidents = L.layerGroup().addTo(state.map);
   state.layers.detail = L.layerGroup().addTo(state.map);
 
+  state.map.on("zoomend", () => {
+    applyZoomStyling();
+    scaleIncidentMarkers();
+  });
+
   bindLayerToggle("layer-slicks", "slicks");
   bindLayerToggle("layer-past", "past");
   bindLayerToggle("layer-rejected", "rejected");
@@ -211,33 +216,79 @@ function drawSlickLayers() {
       : isPast ? C.past : (p.abstained ? C.abstain : C.oil);
     const g = f.geometry;
 
-    let layer;
-    if (g.type === "Polygon" && g.coordinates[0] && g.coordinates[0].length >= 4) {
-      layer = L.polygon(g.coordinates[0].map(([lon, lat]) => [lat, lon]), {
+    const [clat, clon] = centroidOf(f);
+    const hasPolygon =
+      g.type === "Polygon" && g.coordinates[0] && g.coordinates[0].length >= 4;
+
+    // Two representations of the same slick. A 10 km slick is well under one
+    // pixel at world zoom, so its polygon simply vanishes; the marker keeps it
+    // findable. Above POLYGON_ZOOM the real outline is worth showing.
+    const marker = L.circleMarker([clat, clon], {
+      radius: markerRadius(p, state.map.getZoom()),
+      color, fillColor: color,
+      fillOpacity: !p.is_oil ? 0.35 : isPast ? 0.6 : 0.85,
+      weight: isPast ? 1.5 : 2,
+      className: p.is_oil && !isPast ? "slick-marker live" : "slick-marker",
+    });
+    marker._slickProps = p;
+    target.addLayer(marker);
+
+    let layer = marker;
+    if (hasPolygon) {
+      const poly = L.polygon(g.coordinates[0].map(([lon, lat]) => [lat, lon]), {
         color, weight: isPast ? 1.5 : 2, fillColor: color,
         fillOpacity: !p.is_oil ? 0.12 : isPast ? 0.2 : 0.35,
         dashArray: p.is_oil ? null : "4,4",
       });
-    } else {
-      const [lat, lon] = centroidOf(f);
-      layer = L.circleMarker([lat, lon], {
-        radius: isPast ? 5 : 7, color, fillColor: color,
-        fillOpacity: isPast ? 0.45 : 0.65, weight: isPast ? 1.5 : 2,
-      });
+      poly._isSlickPolygon = true;
+      target.addLayer(poly);
+      layer = poly;
+      if (p.is_oil) poly.on("click", () => openDetail(p.candidate_id));
+      poly.bindTooltip(slickTooltip(p, isPast), { direction: "top" });
     }
 
-    const corroborated = p.corroborated;
-    layer.bindTooltip(
-      `<b>${esc(p.candidate_id)}</b><br>` +
-      `${fmt(p.area_km2)} km&sup2; &middot; P(oil) ${fmt(p.p_oil)}<br>` +
-      `wind ${fmt((p.wind || {}).speed_ms, 1)} m/s` +
-      (isPast ? `<br><i>past incident &mdash; ${fmt(p.age_days, 0)} days old</i>` : "") +
-      (corroborated ? `<br><b style="color:${C.confirmed}">confirmed by incident registry</b>` : "") +
-      (p.is_oil ? "" : `<br><i>${esc(p.rejected_reason || "rejected")}</i>`),
-      { direction: "top" }
-    );
-    if (p.is_oil) layer.on("click", () => openDetail(p.candidate_id));
-    layer.addTo(target);
+    marker.bindTooltip(slickTooltip(p, isPast), { direction: "top" });
+    if (p.is_oil) marker.on("click", () => openDetail(p.candidate_id));
+  });
+
+  applyZoomStyling();
+}
+
+function slickTooltip(p, isPast) {
+  return `<b>${esc(p.label || p.candidate_id)}</b><br>` +
+    `${fmt(p.area_km2)} km&sup2; &middot; P(oil) ${fmt(p.p_oil)}<br>` +
+    `wind ${fmt((p.wind || {}).speed_ms, 1)} m/s` +
+    (isPast ? `<br><i>past incident &mdash; ${fmt(p.age_days, 0)} days old</i>` : "") +
+    (p.corroborated
+      ? `<br><b style="color:${C.confirmed}">confirmed by incident registry</b>` : "") +
+    (p.is_oil ? "" : `<br><i>${esc(p.rejected_reason || "rejected")}</i>`);
+}
+
+// Below this zoom a slick polygon is smaller than a pixel, so the marker
+// carries it instead.
+const POLYGON_ZOOM = 8;
+
+function markerRadius(p, zoom) {
+  /* Grow markers as the view widens. Zoomed out the map is an index of where
+     to look, so the dot must be findable; zoomed in the polygon takes over
+     and the dot shrinks out of the way. */
+  const base = zoom <= 3 ? 6 : zoom <= 5 ? 5.5 : zoom <= 7 ? 5 : 3.5;
+  const emphasis = p.is_oil && p.activity === "active" ? 1.35 : 1.0;
+  return base * emphasis;
+}
+
+function applyZoomStyling() {
+  const zoom = state.map.getZoom();
+  const showPolygons = zoom >= POLYGON_ZOOM;
+  [state.layers.slicks, state.layers.past, state.layers.rejected].forEach((group) => {
+    group.eachLayer((layer) => {
+      if (layer._isSlickPolygon) {
+        layer.setStyle({ opacity: showPolygons ? 1 : 0, fillOpacity: showPolygons ? 0.3 : 0 });
+      } else if (layer._slickProps) {
+        layer.setRadius(markerRadius(layer._slickProps, zoom));
+        layer.setStyle({ opacity: showPolygons ? 0.55 : 1 });
+      }
+    });
   });
 }
 
@@ -252,12 +303,15 @@ function drawIncidentLayer() {
     const radius = v > 0 ? Math.max(3.5, Math.min(13, 3.5 + Math.log10(v + 1) * 2.1)) : 3.5;
     const color = p.natural_seep ? "#a3a3a3" : C.incident;
 
-    L.circleMarker([lat, lon], {
-      radius, color, fillColor: color,
+    const marker = L.circleMarker([lat, lon], {
+      radius: radius * incidentZoomScale(state.map.getZoom()),
+      color, fillColor: color,
       fillOpacity: p.persistent ? 0.75 : 0.45,
       weight: p.persistent ? 2 : 1,
       className: "incident-marker",
-    })
+    });
+    marker._baseRadius = radius;
+    marker
       .bindTooltip(
         `<b>${esc(p.name)}</b><br>` +
         `${esc(p.location || "")}<br>` +
@@ -268,6 +322,20 @@ function drawIncidentLayer() {
         { direction: "top" }
       )
       .addTo(state.layers.incidents);
+  });
+  scaleIncidentMarkers();
+}
+
+function incidentZoomScale(zoom) {
+  /* At world zoom thousands of incidents overlap into a blob; shrinking them
+     keeps the pattern readable, and they grow back as the view narrows. */
+  return zoom <= 2 ? 0.62 : zoom <= 4 ? 0.85 : zoom <= 6 ? 1.0 : 1.25;
+}
+
+function scaleIncidentMarkers() {
+  const scale = incidentZoomScale(state.map.getZoom());
+  state.layers.incidents.eachLayer((layer) => {
+    if (layer._baseRadius) layer.setRadius(layer._baseRadius * scale);
   });
 }
 
@@ -1030,6 +1098,7 @@ function stopAnimation() {
 
 document.addEventListener("DOMContentLoaded", () => {
   initMap();
+  initResponsivePanel();
   $("tabs").addEventListener("click", (e) => {
     const tab = e.target.closest(".tab");
     if (!tab) return;
@@ -1044,3 +1113,76 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   boot();
 });
+
+/* ----------------------------------------------------------- responsive --- */
+
+function initResponsivePanel() {
+  /* On a stacked layout the panel competes with the map for a small screen.
+     Dragging its header resizes it, and a tap toggles collapsed/expanded, so
+     the map can be given the whole viewport when you are looking at it. */
+  const panel = $("panel");
+  const head = document.querySelector(".panel-head");
+  if (!panel || !head) return;
+
+  const stacked = () => window.matchMedia("(max-width: 1180px)").matches;
+  let startY = 0;
+  let startHeight = 0;
+  let dragging = false;
+  let moved = false;
+
+  const onDown = (e) => {
+    if (!stacked()) return;
+    // Let the tabs work; only the bare header area is a drag handle.
+    if (e.target.closest(".tab") || e.target.closest("button")) return;
+    dragging = true;
+    moved = false;
+    startY = (e.touches ? e.touches[0].clientY : e.clientY);
+    startHeight = panel.getBoundingClientRect().height;
+    panel.style.transition = "none";
+  };
+
+  const onMove = (e) => {
+    if (!dragging) return;
+    const y = (e.touches ? e.touches[0].clientY : e.clientY);
+    const delta = startY - y;
+    if (Math.abs(delta) > 4) moved = true;
+    const height = Math.min(
+      window.innerHeight * 0.88,
+      Math.max(92, startHeight + delta)
+    );
+    panel.style.maxHeight = `${height}px`;
+    if (e.cancelable) e.preventDefault();
+  };
+
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    panel.style.transition = "";
+    if (!moved) {
+      // A tap, not a drag: toggle between peek and full.
+      panel.classList.toggle("collapsed");
+      panel.style.maxHeight = "";
+    }
+    state.map.invalidateSize();
+  };
+
+  head.addEventListener("mousedown", onDown);
+  head.addEventListener("touchstart", onDown, { passive: true });
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("touchmove", onMove, { passive: false });
+  window.addEventListener("mouseup", onUp);
+  window.addEventListener("touchend", onUp);
+
+  // Leaflet needs telling when its container changes size, or the tiles tear.
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      panel.style.maxHeight = "";
+      state.map.invalidateSize();
+      applyZoomStyling();
+    }, 140);
+  });
+  window.addEventListener("orientationchange", () =>
+    setTimeout(() => state.map.invalidateSize(), 260));
+}

@@ -1,0 +1,30 @@
+# MSC ELSA 3 — sank 25 May 2025 off Kochi, Kerala. Wreck at 09 18.75'N 076 08.16'E.
+# The responsible vessel is publicly documented, so this scene lets us check our
+# answer against the record in front of judges.
+stubs: {stage_b: false}
+ingest:
+  target_resolution_m: 80.0
+  tile_size: 512
+  tile_overlap: 0.25
+  speckle_filter: refined_lee
+detect:
+  classes: 2
+  checkpoint: models/stage_b.pt
+  stage_a_threshold: 0.12
+  stage_b_threshold: 0.55
+  min_area_km2: 0.2
+  classical_sensitivity: 2.5
+wind:
+  source: constant
+  speed_ms: 6.1                 # Arabian Sea, late May (pre-monsoon onset)
+  direction_deg: 250.0
+  label: climatology-Kerala-May
+lookalike: {p_oil_threshold: 0.5}
+drift:
+  backend: auto
+  currents_source: synthetic
+  backtrack_hours: 12.0
+  n_particles: 250
+attribute: {search_radius_km: 50.0, top_n: 3}
+decision: {abstain_margin: 0.08, min_top_score: 0.35}
+incidents: {path: data/reference/noaa_incidents.csv}

@@ -152,6 +152,10 @@ def main() -> int:
     ap.add_argument("--bbox", default="68,8,78,20",
                     help="min_lon,min_lat,max_lon,max_lat (default: Arabian Sea / Indian coast)")
     ap.add_argument("--days", type=float, default=3.0, help="how far back to search")
+    ap.add_argument("--date", default=None,
+                    help="centre the search on this date (YYYY-MM-DD) instead of now, "
+                         "for archived incidents")
+    ap.add_argument("--name", default=None, help="label prefix for the fetched scenes")
     ap.add_argument("--max-scenes", type=int, default=3)
     ap.add_argument("--out-dir", default="data/live")
     ap.add_argument("--config", default="configs/live.yaml")
@@ -163,8 +167,13 @@ def main() -> int:
     if len(bbox) != 4:
         raise SystemExit("--bbox needs 4 comma-separated values")
 
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=args.days)
+    if args.date:
+        centre = datetime.fromisoformat(args.date).replace(tzinfo=timezone.utc)
+        start = centre - timedelta(days=args.days)
+        end = centre + timedelta(days=args.days)
+    else:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=args.days)
     print(f"Searching Sentinel-1 IW GRD  (no account needed)")
     print(f"  bbox   : {bbox}")
     print(f"  window : {start:%Y-%m-%d %H:%M} to {end:%Y-%m-%d %H:%M} UTC")
@@ -237,6 +246,7 @@ def main() -> int:
 
         manifest = {
             "scene_id": scene_id,
+            "label": args.name,
             "acquired_at": datetime.fromisoformat(
                 acquired.replace("Z", "+00:00")).isoformat(),
             "bbox": [round(v, 6) for v in actual_bbox],
