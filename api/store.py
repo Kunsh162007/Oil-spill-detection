@@ -56,6 +56,7 @@ class AnalysisStore:
         """Find scene manifests on disk. A manifest is a JSON file with a
         scene_id, a bbox and a vv_path."""
         roots = roots or [
+            "data/live",            # freshly fetched imagery, checked first
             "data/demo_internal", "data/demo_finale", "data/dev", "data/dev/scenes",
         ]
         found: list[dict[str, Any]] = []

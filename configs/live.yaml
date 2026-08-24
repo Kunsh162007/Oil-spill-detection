@@ -1,0 +1,49 @@
+# Live Sentinel-1 scenes pulled from AWS Open Data (no account needed).
+#
+# Wind is a regional climatological constant until ERA5 is wired in - honest,
+# labelled, and enough to exercise the wind gate. Run scripts/fetch_wind.py
+# for a real per-pixel field.
+stubs:
+  stage_b: false
+
+ingest:
+  target_resolution_m: 80.0
+  tile_size: 512
+  tile_overlap: 0.25
+  speckle_filter: refined_lee
+  speckle_window: 7
+
+detect:
+  classes: 2
+  checkpoint: models/stage_b.pt   # absent -> classical detector, announced at startup
+  stage_a_threshold: 0.12
+  stage_b_threshold: 0.55
+  min_area_km2: 0.5               # full IW swath; small clutter is not worth chasing
+  classical_sensitivity: 2.6
+
+wind:
+  source: constant
+  speed_ms: 5.8                   # Arabian Sea, south-west monsoon period
+  direction_deg: 225.0
+  label: climatology-ArabianSea
+
+lookalike:
+  p_oil_threshold: 0.5
+
+drift:
+  backend: auto
+  currents_source: synthetic
+  backtrack_hours: 12.0
+  timestep_minutes: 30.0
+  n_particles: 200
+
+attribute:
+  search_radius_km: 50.0
+  top_n: 3
+
+decision:
+  abstain_margin: 0.08
+  min_top_score: 0.35
+
+incidents:
+  path: data/reference/noaa_incidents.csv

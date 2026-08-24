@@ -1,0 +1,17 @@
+{
+  "scene_id": "S1D_IW_GRDH_1SDV_20260822T004046_20260822T004100_004231_007C51_26AA",
+  "acquired_at": "2026-08-22T00:40:46.697761+00:00",
+  "bbox": [
+    75.354695,
+    8.368238,
+    77.7916,
+    8.730714
+  ],
+  "vv_path": "data\\live\\S1D_IW_GRDH_1SDV_20260822T004046_20260822T004100_004231_007C51_26AA_vv.tif",
+  "vh_path": "data\\live\\S1D_IW_GRDH_1SDV_20260822T004046_20260822T004100_004231_007C51_26AA_vh.tif",
+  "orbit_direction": "UNKNOWN",
+  "config": "configs/live.yaml",
+  "REAL_IMAGERY": true,
+  "source": "AWS Open Data sentinel-s1-l1c (public, no credentials)",
+  "age_hours_at_fetch": 56.6
+}
