@@ -24,12 +24,61 @@ import pickle
 import sys
 import time
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 CACHE_DIRNAME = "precomputed"
+
+
+def _portable(analysis):
+    """A copy of the analysis whose paths survive a move between machines.
+
+    pathlib pickles the CONCRETE class, so a Path built on Windows arrives as
+    pathlib.WindowsPath and Linux refuses to instantiate it - the cache is
+    written on a developer's machine and read inside a Linux container, so
+    every entry fails there with NotImplementedError. Nothing in the API opens
+    these paths; they exist for provenance. Storing them relative to the repo
+    as PurePosixPath keeps them readable and correct on both.
+    """
+    import dataclasses
+
+    def portable(value):
+        if value is None:
+            return None
+        text = str(value)
+        try:
+            text = str(Path(value).resolve().relative_to(REPO_ROOT))
+        except (ValueError, OSError):
+            pass
+        return PurePosixPath(text.replace("\\", "/"))
+
+    scene = dataclasses.replace(
+        analysis.scene,
+        vv_path=portable(analysis.scene.vv_path),
+        vh_path=portable(analysis.scene.vh_path),
+    )
+    return dataclasses.replace(analysis, scene=scene)
+
+
+def _normalise_existing(out_dir: Path) -> int:
+    """Rewrite already-cached analyses with portable paths."""
+    fixed = 0
+    for path in sorted(out_dir.glob("*.pkl")):
+        try:
+            with path.open("rb") as fh:
+                analysis = pickle.load(fh)
+        except Exception as exc:
+            print(f"  {path.name}: unreadable ({exc})")
+            continue
+        if isinstance(analysis.scene.vv_path, PurePosixPath):
+            continue
+        with path.open("wb") as fh:
+            pickle.dump(_portable(analysis), fh, protocol=pickle.HIGHEST_PROTOCOL)
+        fixed += 1
+    print(f"  normalised {fixed} cached analysis/analyses to portable paths")
+    return fixed
 
 
 def _write_world_index(out_dir: Path) -> None:
@@ -165,7 +214,7 @@ def main() -> int:
         target = out_dir / f"{scene_id}.pkl"
         tmp = target.with_suffix(".tmp")
         with tmp.open("wb") as fh:
-            pickle.dump(analysis, fh, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(_portable(analysis), fh, protocol=pickle.HIGHEST_PROTOCOL)
         tmp.replace(target)
 
         size_kb = target.stat().st_size / 1024
@@ -174,6 +223,7 @@ def main() -> int:
               f"({time.perf_counter() - started:.1f}s, {size_kb:.0f} KB)")
         ok += 1
 
+    _normalise_existing(out_dir)
     _write_world_index(out_dir)
 
     total_kb = sum(p.stat().st_size for p in out_dir.glob("*.pkl")) / 1024

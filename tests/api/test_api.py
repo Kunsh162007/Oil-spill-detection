@@ -299,3 +299,29 @@ def test_health_does_not_import_torch(client):
     assert "torch" not in sys.modules
     assert "memory" in body
     assert "torch" not in body["memory"]["heavy_imports"]
+
+
+def test_precomputed_analyses_use_portable_paths():
+    """A cache written on Windows must still load on Linux.
+
+    pathlib pickles the concrete class, so a Path built on Windows arrives as
+    pathlib.WindowsPath and a Linux container refuses to instantiate it. That
+    fails at load time for every entry, and the service then looks as though it
+    simply has no cache - a very different problem from the real one.
+    """
+    import pathlib
+    import pickle
+
+    cache_dir = Path(__file__).resolve().parents[2] / "data" / "precomputed"
+    pickles = sorted(cache_dir.glob("*.pkl"))
+    if not pickles:
+        pytest.skip("no precomputed cache in this checkout")
+
+    for path in pickles:
+        with path.open("rb") as fh:
+            analysis = pickle.load(fh)
+        vv = analysis.scene.vv_path
+        assert not isinstance(vv, (pathlib.WindowsPath, pathlib.PosixPath)), (
+            f"{path.name} stores a platform-bound {type(vv).__name__}; "
+            f"run scripts/precompute.py to normalise it"
+        )

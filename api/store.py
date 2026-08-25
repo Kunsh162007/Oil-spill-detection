@@ -58,6 +58,7 @@ class AnalysisStore:
         self._manifests: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
         self._errors: dict[str, str] = {}
+        self._cache_errors: dict[str, str] = {}
 
     @staticmethod
     def _load_registry(config: Config):
@@ -140,9 +141,14 @@ class AnalysisStore:
                 analysis = pickle.load(fh)
         except Exception as exc:
             # A stale or truncated cache must not take the service down; fall
-            # through and analyse live, which may still succeed.
+            # through and analyse live, which may still succeed. The reason is
+            # kept because "no cached analysis" and "the cache would not load"
+            # look identical from outside and need very different fixes - a
+            # cache written on Windows, for instance, carries WindowsPath
+            # objects that Linux refuses to instantiate.
             log.warning("Precomputed cache unusable for %s (%s); analysing live",
                         scene_id, exc)
+            self._cache_errors[scene_id] = f"{type(exc).__name__}: {exc}"
             return None
         log.info("Loaded precomputed analysis for %s", scene_id)
         return analysis
@@ -165,8 +171,11 @@ class AnalysisStore:
             raise KeyError(f"Unknown scene: {scene_id}")
 
         if not live_analysis_allowed():
+            reason = self._cache_errors.get(scene_id)
+            detail = (f"its cached analysis failed to load ({reason})"
+                      if reason else "it has no cached analysis")
             raise LiveAnalysisDisabled(
-                f"No cached analysis for {scene_id}, and live analysis is "
+                f"Cannot serve {scene_id}: {detail}, and live analysis is "
                 f"disabled in this deployment (ALLOW_LIVE_ANALYSIS=false). "
                 f"Run scripts/precompute.py and rebuild the image."
             )
