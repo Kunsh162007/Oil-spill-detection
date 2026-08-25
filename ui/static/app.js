@@ -385,9 +385,20 @@ function renderTab(name) {
 // back to the health value only when the index carries no counts.
 function fieldSummary(key, fallback) {
   const counts = (state.slicksMeta || {})[key] || {};
-  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  // Collapse per-scene filenames to the product that produced them. Currents
+  // are stored one file per scene, so the raw keys are
+  // "cmems:S1C_IW_GRDH_1SDV_2026...nc" and the panel showed a truncated
+  // filename where a source name belongs.
+  const byProduct = {};
+  for (const [name, n] of Object.entries(counts)) {
+    const product = String(name).split(":")[0];
+    byProduct[product] = (byProduct[product] || 0) + n;
+  }
+  const entries = Object.entries(byProduct).sort((a, b) => b[1] - a[1]);
   if (!entries.length) return fallback || "--";
   if (entries.length === 1) return entries[0][0];
+  // More than one means a fallback was used somewhere; show the split so a
+  // partly-synthetic run can never look uniform.
   return entries.map(([name, n]) => `${name} (${n})`).join(", ");
 }
 
