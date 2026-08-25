@@ -1,0 +1,68 @@
+# Deployment image for a cloud PaaS (Render / Railway / Fly.io).
+#
+#   docker build -t oilspill -f docker/Dockerfile.paas .
+#   docker run -p 8000:8000 -e PORT=8000 oilspill
+#
+# Two decisions shape this file:
+#
+#  * CPU only. The trained checkpoint is not deployed (see README), the
+#    pipeline runs the classical detector, and free PaaS tiers have no GPU.
+#    A CUDA base would add several GB for nothing.
+#
+#  * Demo data is GENERATED at build time rather than committed. The
+#    synthetic scenes need no network, and the incident registry is a 3 MB
+#    download - so the repo stays free of binaries while the deployed app
+#    still has something real to show on first load.
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app
+
+# GDAL and PROJ back rasterio and pyproj. gcc builds a couple of wheels and is
+# removed again in the same layer to keep the image small.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgdal-dev gdal-bin libproj-dev libgl1 libglib2.0-0 \
+        gcc g++ curl \
+    && apt-get clean
+
+WORKDIR /app
+
+COPY requirements.txt ./
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r requirements.txt \
+    && python -m pip install global-land-mask \
+    && apt-get purge -y gcc g++ && apt-get autoremove -y
+
+COPY core/ core/
+COPY ingest/ ingest/
+COPY detect/ detect/
+COPY drift/ drift/
+COPY attribute/ attribute/
+COPY decision/ decision/
+COPY api/ api/
+COPY ui/ ui/
+COPY scripts/ scripts/
+COPY configs/ configs/
+
+# Demo scenes and the documented-incident registry, baked in so a cold
+# container has data on its first request. PaaS disks are ephemeral, so
+# anything fetched at runtime would be lost on every restart.
+RUN mkdir -p data/demo_internal data/reference \
+    && python scripts/make_demo_scene.py \
+    && python scripts/make_demo_scene.py --calm-wind --name CALM_WIND_DEMO \
+         --bbox "74.20,9.05,74.80,9.65" --seed 21 \
+    && (python scripts/fetch_incidents.py || \
+        echo "WARNING: incident registry unavailable at build time; the world map stays empty until scripts/fetch_incidents.py is run")
+
+ENV OILSPILL_CONFIG=configs/demo_synthetic.yaml \
+    PORT=8000
+EXPOSE 8000
+
+# PaaS platforms inject $PORT and expect the app to bind it. Hardcoding 8000
+# means the platform's router cannot reach the container.
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:${PORT:-8000}/api/health || exit 1

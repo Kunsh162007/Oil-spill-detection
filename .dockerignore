@@ -1,0 +1,23 @@
+# Build context hygiene. Without this the 1.4 GB venv and 1.6 GB of raw
+# imagery get shipped to the daemon on every build.
+.venv/
+.git/
+.pytest-tmp/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Data is generated at build time or mounted at run time, never baked from
+# the working tree - a developer's local scratch must not end up in an image.
+data/
+runs/
+models/*.pt
+models/*.pth
+models/*.onnx
+
+# Local-only
+.env
+htmlcov/
+.coverage
+*.log

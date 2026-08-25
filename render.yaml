@@ -1,0 +1,42 @@
+# Render blueprint: two services, deployed and scaled independently.
+#
+# The API does the work and holds the data; the frontend is static files on a
+# CDN. Splitting them means a traffic spike on the map does not compete with a
+# scene analysis for the same process.
+services:
+  - type: web
+    name: oilspill-api
+    runtime: docker
+    dockerfilePath: ./docker/Dockerfile.paas
+    plan: starter          # free tier sleeps; a cold start re-analyses scenes
+    healthCheckPath: /api/health
+    envVars:
+      - key: SERVE_UI
+        value: "false"     # the frontend is its own service
+      - key: OILSPILL_CONFIG
+        value: configs/demo_synthetic.yaml
+      - key: CORS_ORIGINS
+        # Must match the static site URL below, or the browser blocks every call.
+        value: https://oilspill-ui.onrender.com
+      - key: LOG_LEVEL
+        value: INFO
+    # Analysed scenes and fetched imagery live here. Without a disk the
+    # container re-analyses everything on each restart, which on the free
+    # tier means every cold start.
+    disk:
+      name: oilspill-data
+      mountPath: /app/data
+      sizeGB: 2
+
+  - type: web
+    name: oilspill-ui
+    runtime: static
+    buildCommand: ""       # nothing to build; it is plain HTML, CSS and JS
+    staticPublishPath: ./ui
+    envVars:
+      - key: API_BASE
+        value: https://oilspill-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

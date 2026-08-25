@@ -110,10 +110,10 @@ function clearDetail() {
 async function boot() {
   try {
     const [health, slicks, incidents, stats] = await Promise.all([
-      fetch("/api/health").then((r) => r.json()),
-      fetch("/api/slicks").then((r) => r.json()),
-      fetch("/api/incidents?limit=4000").then((r) => (r.ok ? r.json() : { features: [], meta: {} })),
-      fetch("/api/stats").then((r) => (r.ok ? r.json() : null)),
+      fetch(apiUrl("/api/health")).then((r) => r.json()),
+      fetch(apiUrl("/api/slicks")).then((r) => r.json()),
+      fetch(apiUrl("/api/incidents?limit=4000")).then((r) => (r.ok ? r.json() : { features: [], meta: {} })),
+      fetch(apiUrl("/api/stats")).then((r) => (r.ok ? r.json() : null)),
     ]);
 
     state.health = health;
@@ -618,10 +618,10 @@ async function openDetail(candidateId) {
   $("panel-body").innerHTML = '<div class="spinner">Backtracking drift</div>';
   let detail, trace;
   try {
-    detail = await fetch(`/api/slicks/${candidateId}`).then((r) => r.json());
+    detail = await fetch(apiUrl(`/api/slicks/${candidateId}`)).then((r) => r.json());
     const [traceRes, tlRes] = await Promise.all([
-      fetch(`/api/slicks/${candidateId}/backtrace`),
-      fetch(`/api/slicks/${candidateId}/timeline`),
+      fetch(apiUrl(`/api/slicks/${candidateId}/backtrace`)),
+      fetch(apiUrl(`/api/slicks/${candidateId}/timeline`)),
     ]);
     trace = traceRes.ok ? await traceRes.json() : null;
     state.timeline = tlRes.ok ? await tlRes.json() : null;

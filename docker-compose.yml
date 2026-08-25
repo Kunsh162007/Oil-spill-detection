@@ -1,0 +1,40 @@
+# Local two-tier run, mirroring the deployed topology.
+#
+#   docker compose up --build
+#   UI  http://localhost:8080
+#   API http://localhost:8000/docs
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.paas
+    ports: ["8000:8000"]
+    environment:
+      PORT: "8000"
+      SERVE_UI: "false"
+      CORS_ORIGINS: "http://localhost:8080"
+      OILSPILL_CONFIG: configs/demo_synthetic.yaml
+    volumes:
+      # Analysed scenes survive a restart, so a rebuild does not mean
+      # re-analysing everything.
+      - oilspill-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+
+  ui:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports: ["8080:80"]
+    environment:
+      API_BASE: "http://localhost:8000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  oilspill-data:

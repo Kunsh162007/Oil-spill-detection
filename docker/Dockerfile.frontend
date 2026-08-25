@@ -1,0 +1,25 @@
+# Frontend: static files behind nginx. No Python, no pipeline - it is a client
+# of the API, which is the point of splitting the tiers.
+#
+#   docker build -t oilspill-ui -f docker/Dockerfile.frontend .
+#   docker run -p 8080:80 -e API_BASE=https://your-api.onrender.com oilspill-ui
+FROM nginx:1.27-alpine
+
+COPY ui/ /usr/share/nginx/html/
+
+# The API host is not known until deploy time, so it is injected into a small
+# script at container start rather than baked into the image.
+RUN printf '%s\n' \
+  '#!/bin/sh' \
+  'set -e' \
+  ': "${API_BASE:=}"' \
+  'echo "window.OILSPILL_API_BASE = \"${API_BASE}\";" > /usr/share/nginx/html/static/api-base.js' \
+  'if [ -z "$API_BASE" ]; then echo "API_BASE unset: the page will call its own origin"; else echo "API base: $API_BASE"; fi' \
+  'exec nginx -g "daemon off;"' \
+  > /docker-entrypoint.d/40-api-base.sh && chmod +x /docker-entrypoint.d/40-api-base.sh
+
+RUN sed -i 's|<script src="static/config.js">|<script src="static/api-base.js"></script>\n  <script src="static/config.js">|' \
+      /usr/share/nginx/html/index.html
+
+EXPOSE 80
+CMD ["/docker-entrypoint.d/40-api-base.sh"]

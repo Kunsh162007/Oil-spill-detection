@@ -45,11 +45,14 @@ _state: dict[str, Any] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from api.jobs import JobStore
+
     config = load_config(CONFIG_PATH)
     store = AnalysisStore(config)
     manifests = store.discover()
     _state["store"] = store
     _state["config"] = config
+    _state["jobs"] = JobStore()
     log.info(
         "API ready with %d scene(s): %s",
         len(manifests), ", ".join(m["scene_id"] for m in manifests) or "none",
@@ -73,12 +76,29 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Origins allowed to call this API. The frontend is a separate deployment, so
+# it must be named here - a wildcard is acceptable for a local demo but not
+# for a public service.
+_origins_env = os.environ.get("CORS_ORIGINS", "").strip()
+ALLOWED_ORIGINS = (
+    [o.strip() for o in _origins_env.split(",") if o.strip()] if _origins_env else ["*"]
+)
+if ALLOWED_ORIGINS == ["*"]:
+    log.warning(
+        "CORS_ORIGINS is unset: allowing any origin. Set it to your frontend "
+        "URL before exposing this service publicly."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],       # local demo only
-    allow_methods=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
+from api.pipeline_routes import router as pipeline_router  # noqa: E402
+
+app.include_router(pipeline_router)
 
 
 def get_store() -> AnalysisStore:
@@ -572,9 +592,12 @@ def cerulean(
     return JSONResponse(data)
 
 
-# The UI is served from the same origin so the demo is a single command.
+# The UI is served from the same origin so a local demo is a single command.
+# Set SERVE_UI=false when the frontend is deployed separately - then this
+# process is a pure API and the two tiers scale independently.
+SERVE_UI = os.environ.get("SERVE_UI", "true").lower() not in ("false", "0", "no")
 UI_DIR = REPO_ROOT / "ui"
-if UI_DIR.is_dir():
+if SERVE_UI and UI_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(UI_DIR / "static")), name="static")
 
     @app.get("/")
