@@ -1,42 +1,31 @@
-# Render blueprint: two services, deployed and scaled independently.
+# Render blueprint - free tier.
 #
-# The API does the work and holds the data; the frontend is static files on a
-# CDN. Splitting them means a traffic spike on the map does not compete with a
-# scene analysis for the same process.
+# One service that serves both the API and the UI. The two-tier split still
+# exists (SERVE_UI=false turns this into a pure API), but running them as one
+# service is the right call on a free plan: each free service sleeps after 15
+# minutes idle, and two sleeping services means two cold starts per visit.
+#
+# Free-tier constraints this file works within:
+#   * NO persistent disk - disks are a paid feature. Demo scenes and the
+#     incident registry are baked into the image at build time, so a cold
+#     container still has data. Scenes fetched at runtime are lost on restart.
+#   * 512 MB RAM. Enough for the classical detector; not for the U-Net.
+#   * Sleeps after 15 min idle; the next request takes ~50 s to wake.
 services:
   - type: web
-    name: oilspill-api
+    name: oilspill
     runtime: docker
-    dockerfilePath: ./docker/Dockerfile.paas
-    plan: starter          # free tier sleeps; a cold start re-analyses scenes
+    dockerfilePath: ./Dockerfile
+    plan: free
     healthCheckPath: /api/health
     envVars:
+      # Serve the UI from the same service - see the note above.
       - key: SERVE_UI
-        value: "false"     # the frontend is its own service
+        value: "true"
       - key: OILSPILL_CONFIG
         value: configs/demo_synthetic.yaml
+      # Same-origin, so no cross-origin calls to allow.
       - key: CORS_ORIGINS
-        # Must match the static site URL below, or the browser blocks every call.
-        value: https://oilspill-ui.onrender.com
+        value: ""
       - key: LOG_LEVEL
         value: INFO
-    # Analysed scenes and fetched imagery live here. Without a disk the
-    # container re-analyses everything on each restart, which on the free
-    # tier means every cold start.
-    disk:
-      name: oilspill-data
-      mountPath: /app/data
-      sizeGB: 2
-
-  - type: web
-    name: oilspill-ui
-    runtime: static
-    buildCommand: ""       # nothing to build; it is plain HTML, CSS and JS
-    staticPublishPath: ./ui
-    envVars:
-      - key: API_BASE
-        value: https://oilspill-api.onrender.com
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html

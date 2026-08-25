@@ -57,10 +57,18 @@ def main() -> int:
         who = api.whoami()
     except Exception:
         raise SystemExit(
-            "Not logged in to Hugging Face. Run this first:\n"
-            "    .venv/Scripts/hf.exe auth login\n"
-            "Create a token with WRITE access at "
-            "https://huggingface.co/settings/tokens"
+            "Not authenticated to Hugging Face.\n\n"
+            "Create a token with WRITE access at\n"
+            "    https://huggingface.co/settings/tokens\n\n"
+            "Then, in YOUR OWN terminal - not through an assistant, so the\n"
+            "token is never echoed into a transcript:\n\n"
+            "  PowerShell:\n"
+            '    $env:HF_TOKEN = "hf_xxxxx"\n'
+            "    .venv\\Scripts\\python.exe scripts\\deploy_hf.py --space you/space\n\n"
+            "  or log in once, interactively:\n"
+            "    .venv\\Scripts\\hf.exe auth login\n\n"
+            "Never paste a token into a chat window: it stays in the\n"
+            "transcript and has to be revoked."
         )
     print(f"Logged in as: {who.get('name')}")
 
