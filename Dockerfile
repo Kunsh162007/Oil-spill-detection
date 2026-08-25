@@ -58,6 +58,12 @@ RUN mkdir -p data/demo_internal data/reference \
     && (python scripts/fetch_incidents.py || \
         echo "WARNING: incident registry unavailable at build time")
 
+# Analyse every scene here, where memory is plentiful, and ship only the
+# result. A 512 MB container cannot run the pipeline per request - the worker
+# is OOM-killed mid-request, which surfaces as a 502 with no body - but it can
+# comfortably deserialise a few hundred KB of polygons and scores.
+RUN python scripts/precompute.py ||     echo "WARNING: precompute failed; the container will analyse on demand and may exhaust memory"
+
 # 7860 is the Hugging Face Spaces convention; $PORT overrides it on Render,
 # Railway and Fly, all of which inject their own.
 ENV OILSPILL_CONFIG=configs/demo_synthetic.yaml \

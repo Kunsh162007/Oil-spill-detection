@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import pickle
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -96,11 +97,41 @@ class AnalysisStore:
             orbit_direction=data.get("orbit_direction", "DESCENDING"),
         )
 
+    def _load_precomputed(self, scene_id: str) -> SceneAnalysis | None:
+        """A build-time analysis for this scene, if one was baked in.
+
+        Running the pipeline needs far more memory than serving its result. On
+        a small container the analysis happens once during the image build and
+        only the answer ships inside - polygons, scores, tracks, a few hundred
+        KB with no arrays. See scripts/precompute.py.
+        """
+        path = resolve_path("data/precomputed") / f"{scene_id}.pkl"
+        if not path.exists():
+            return None
+        try:
+            with path.open("rb") as fh:
+                analysis = pickle.load(fh)
+        except Exception as exc:
+            # A stale or truncated cache must not take the service down; fall
+            # through and analyse live, which may still succeed.
+            log.warning("Precomputed cache unusable for %s (%s); analysing live",
+                        scene_id, exc)
+            return None
+        log.info("Loaded precomputed analysis for %s", scene_id)
+        return analysis
+
     def get(self, scene_id: str, force: bool = False) -> SceneAnalysis:
-        """Analysis for one scene, computed on first use."""
+        """Analysis for one scene: precomputed if available, else computed."""
         with self._lock:
             if not force and scene_id in self._analyses:
                 return self._analyses[scene_id]
+
+        if not force:
+            precomputed = self._load_precomputed(scene_id)
+            if precomputed is not None:
+                with self._lock:
+                    self._analyses[scene_id] = precomputed
+                return precomputed
 
         data = self._manifests.get(scene_id)
         if data is None:
