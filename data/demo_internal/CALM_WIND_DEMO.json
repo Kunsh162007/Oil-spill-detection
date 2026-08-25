@@ -4,7 +4,7 @@
   "config": "configs/demo_calm_wind.yaml",
   "scenario": "low-wind look-alike",
   "note": "Generated for pipeline testing. Never report numbers from this scene.",
-  "acquired_at": "2025-05-25T05:42:00+00:00",
+  "acquired_at": "2026-08-24T18:22:34.250339+00:00",
   "bbox": [
     74.2,
     9.05,
@@ -20,12 +20,12 @@
       "kind": "oil",
       "morphology": "linear",
       "row_range": [
-        420,
-        515
+        210,
+        258
       ],
       "col_range": [
-        250,
-        1150
+        125,
+        575
       ],
       "expected": "ACCEPT - real oil from a moving vessel"
     },
@@ -33,8 +33,8 @@
       "kind": "lookalike",
       "subtype": "biogenic_film",
       "centre_rc": [
-        980,
-        380
+        490,
+        190
       ],
       "expected": "REJECT - round blob, weak damping"
     },
@@ -42,8 +42,8 @@
       "kind": "lookalike",
       "subtype": "rain_cell",
       "centre_rc": [
-        300,
-        1050
+        150,
+        525
       ],
       "expected": "REJECT - circular with granular texture"
     },
@@ -51,18 +51,18 @@
       "kind": "lookalike",
       "subtype": "internal_waves",
       "row_range": [
-        1150,
-        1330
+        575,
+        665
       ],
       "col_range": [
-        600,
-        1250
+        300,
+        625
       ],
       "expected": "REJECT - regular periodic banding"
     }
   },
   "expected_origin": {
-    "lon": 74.30714,
-    "lat": 9.46571
+    "lon": 74.41429,
+    "lat": 9.28143
   }
 }

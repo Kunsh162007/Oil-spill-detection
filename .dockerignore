@@ -15,6 +15,13 @@ data/
 # ship them; excluding these puts us back to analysing per request.
 !data/precomputed/
 !data/precomputed/**
+# Real Sentinel-1 scenes (~100 MB). Without these the deployed map shows
+# only the synthetic demo, while the local one shows detections across
+# five ocean basins.
+!data/live/
+!data/live/**
+!data/demo_finale/
+!data/demo_finale/**
 runs/
 models/*.pt
 models/*.pth

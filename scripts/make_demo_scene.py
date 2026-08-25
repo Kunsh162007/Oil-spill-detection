@@ -267,6 +267,9 @@ def main() -> int:
     ap.add_argument("--name", default="SYNTH_DEMO_001")
     ap.add_argument("--size", type=int, default=1400)
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--acquired", default=None,
+                    help="acquisition time (ISO). Default: 12 h ago, so the "
+                         "scene reads as active.")
     ap.add_argument("--no-lookalikes", action="store_true")
     ap.add_argument(
         "--calm-wind", action="store_true",
@@ -299,7 +302,15 @@ def main() -> int:
         sea_sigma0=0.006 if args.calm_wind else 0.022,
     )
 
-    acquired_at = datetime(2025, 5, 25, 5, 42, tzinfo=timezone.utc)
+    # Dated recently so the scene reads as ACTIVE in the UI, which is what
+    # a synthetic demo scene should do - a fixed 2025 date made the
+    # generated demo look like a stale archive. Override with --acquired
+    # when reproducing a specific incident.
+    acquired_at = (
+        datetime.fromisoformat(args.acquired).replace(tzinfo=timezone.utc)
+        if args.acquired
+        else datetime.now(timezone.utc) - timedelta(hours=12)
+    )
     vv_path = write_raster(out_dir / f"{args.name}_vv.tif", vv, bbox)
     vh_path = write_raster(out_dir / f"{args.name}_vh.tif", vh, bbox)
 
