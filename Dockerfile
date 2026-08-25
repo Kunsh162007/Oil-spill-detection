@@ -42,10 +42,15 @@ RUN test -s api/main.py && test -s core/contracts.py && test -s ui/static/app.js
 
 # Demo scenes and the documented-incident registry, baked in so a cold
 # container has data on its first request. PaaS disks are ephemeral.
+# Scenes are generated at 700 px rather than the 1400 px default. A free
+# container has 512 MB, and analysing a 1400 px scene peaks past that - the
+# health check survives but the first real request kills the worker, which
+# surfaces as a 502 rather than an error. Quartering the pixel count keeps the
+# whole pipeline inside the budget; the planted slicks stay clearly visible.
 RUN mkdir -p data/demo_internal data/reference \
-    && python scripts/make_demo_scene.py \
+    && python scripts/make_demo_scene.py --size 700 \
     && python scripts/make_demo_scene.py --calm-wind --name CALM_WIND_DEMO \
-         --bbox "74.20,9.05,74.80,9.65" --seed 21 \
+         --bbox "74.20,9.05,74.80,9.65" --seed 21 --size 700 \
     && (python scripts/fetch_incidents.py || \
         echo "WARNING: incident registry unavailable at build time")
 

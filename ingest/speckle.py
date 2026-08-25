@@ -37,7 +37,10 @@ def lee_filter(img: np.ndarray, size: int = 7, enl: float = DEFAULT_ENL) -> np.n
     original pixel where local variance exceeds what speckle alone explains,
     which is what preserves slick edges.
     """
-    arr = np.asarray(img, dtype=np.float64)
+    # float32 throughout: refined Lee runs eight directional convolutions, and
+# in float64 those intermediates alone exceed the memory of a small
+# container. Precision is far beyond what dB backscatter needs.
+    arr = np.asarray(img, dtype=np.float32)
     mean, var = _local_stats(arr, size)
 
     # Speckle-only variance for this ENL, in intensity terms.
@@ -74,7 +77,10 @@ def refined_lee(img: np.ndarray, size: int = 7, enl: float = DEFAULT_ENL) -> np.
     the edge instead of across it — which matters because the thin tapering
     streak of a bilge dump is exactly the structure a symmetric filter erodes.
     """
-    arr = np.asarray(img, dtype=np.float64)
+    # float32 throughout: refined Lee runs eight directional convolutions, and
+# in float64 those intermediates alone exceed the memory of a small
+# container. Precision is far beyond what dB backscatter needs.
+    arr = np.asarray(img, dtype=np.float32)
     if size < 3:
         return arr.astype(np.float32)
 
@@ -164,6 +170,9 @@ def speckle_index(img: np.ndarray) -> float:
     A crude but useful check that filtering did something: this number should
     drop noticeably after filtering and is ~1/sqrt(ENL) for pure speckle.
     """
-    arr = np.asarray(img, dtype=np.float64)
+    # float32 throughout: refined Lee runs eight directional convolutions, and
+# in float64 those intermediates alone exceed the memory of a small
+# container. Precision is far beyond what dB backscatter needs.
+    arr = np.asarray(img, dtype=np.float32)
     m = float(arr.mean())
     return float(arr.std() / m) if m != 0 else 0.0
