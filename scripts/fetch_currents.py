@@ -131,7 +131,12 @@ def describe(path: Path) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", required=True)
+    ap.add_argument("--config", default=None,
+                    help="read fetch.bbox / fetch.date from a config")
+    ap.add_argument("--bbox", default=None,
+                    help="min_lon,min_lat,max_lon,max_lat - overrides the config")
+    ap.add_argument("--date", default=None, help="ISO datetime - overrides the config")
+    ap.add_argument("--out", default=None, help="output .nc path")
     ap.add_argument("--pad-deg", type=float, default=1.0,
                     help="widen the bbox so drifting particles stay inside it")
     ap.add_argument("--hours-before", type=float, default=36.0)
@@ -140,13 +145,25 @@ def main() -> int:
 
     from core.config import load_config, resolve_path
 
-    config = load_config(args.config)
-    section = config.section("fetch") or {}
+    section: dict = {}
+    if args.config:
+        section = load_config(args.config).section("fetch") or {}
+    if args.bbox:
+        section["bbox"] = [float(v) for v in args.bbox.split(",")]
+    if args.date:
+        section["date"] = args.date
+    if args.out:
+        section["currents_path"] = args.out
     if "bbox" not in section or "date" not in section:
-        print("config needs fetch.bbox and fetch.date", file=sys.stderr)
+        print("need fetch.bbox and fetch.date, from --config or --bbox/--date",
+              file=sys.stderr)
         return 2
 
     bbox = tuple(float(v) for v in section["bbox"])
+    if len(bbox) != 4 or bbox[0] >= bbox[2] or bbox[1] >= bbox[3]:
+        print(f"bbox looks transposed: {bbox}. Order is "
+              f"min_lon,min_lat,max_lon,max_lat - longitude first.", file=sys.stderr)
+        return 2
     centre = datetime.fromisoformat(str(section["date"]))
     if centre.tzinfo is None:
         centre = centre.replace(tzinfo=timezone.utc)

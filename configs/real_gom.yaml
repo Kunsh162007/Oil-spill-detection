@@ -43,8 +43,10 @@ lookalike:
   p_oil_threshold: 0.5
 
 drift:
+  # Real CMEMS currents for the MC-20 pass.
+  currents_source: cmems
+  currents_path: data/currents/currents_20230620T0002.nc
   backend: auto
-  currents_source: synthetic
   backtrack_hours: 12.0
   timestep_minutes: 30.0
   n_particles: 200

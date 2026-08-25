@@ -23,8 +23,12 @@ wind:
   cache_dir: data/wind/openmeteo
 lookalike: {p_oil_threshold: 0.5}
 drift:
+  # Real CMEMS currents. validate_elsa3.py used to caveat that synthetic
+  # currents made the drift-direction check close to a coin flip; this is
+  # what makes that check mean something.
+  currents_source: cmems
+  currents_path: data/currents/elsa3.nc
   backend: auto
-  currents_source: synthetic
   backtrack_hours: 12.0
   n_particles: 250
 attribute: {search_radius_km: 50.0, top_n: 3}
