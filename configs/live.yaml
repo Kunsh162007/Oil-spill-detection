@@ -34,8 +34,12 @@ lookalike:
   p_oil_threshold: 0.5
 
 drift:
+  # Real CMEMS currents, one field per scene. These scenes run from the
+  # Mediterranean to the South China Sea and share this config, so a single
+  # currents_path cannot serve them - the runner looks up <scene_id>.nc here.
+  currents_source: cmems
+  currents_dir: data/currents
   backend: auto
-  currents_source: synthetic
   backtrack_hours: 12.0
   timestep_minutes: 30.0
   n_particles: 200

@@ -1,0 +1,14 @@
+# Gulf shipping lanes off Galveston - the vessel-attribution demo.
+#
+# Chosen deliberately away from Taylor Energy MC-20 and its persistent-source
+# radius, so a slick here is NOT explained by documented infrastructure and a
+# passing ship is a legitimate hypothesis. Everything real: Sentinel-1 imagery,
+# ERA5 wind, NOAA Marine Cadastre AIS positions, CMEMS currents.
+fetch:
+  bbox: [-96.0710, 29.0311, -94.7995, 29.3260]
+  date: "2023-06-30T12:23:21"
+  ais_source: noaa
+  ais_hours_before: 8
+  ais_hours_after: 6
+  ais_path: data/demo_finale/galveston_ais.csv
+  currents_path: data/currents/S1A_IW_GRDH_1SDV_20230630T122321_20230630T122350_049215_05EAFC_A88F.nc

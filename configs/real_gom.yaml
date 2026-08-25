@@ -43,9 +43,12 @@ lookalike:
   p_oil_threshold: 0.5
 
 drift:
-  # Real CMEMS currents for the MC-20 pass.
+  # One CMEMS field per scene. This config is shared by the MC-20 pass and the
+  # Galveston shipping-lane pass, which are 500 km apart - a single
+  # currents_path would silently give one of them the other's ocean.
   currents_source: cmems
-  currents_path: data/currents/currents_20230620T0002.nc
+  currents_dir: data/currents
+  # Real CMEMS currents for the MC-20 pass.
   backend: auto
   backtrack_hours: 12.0
   timestep_minutes: 30.0

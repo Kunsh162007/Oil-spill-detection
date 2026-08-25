@@ -262,10 +262,29 @@ def world_index(analyses: list[SceneAnalysis]) -> dict[str, Any]:
     active = [f for f in features if f["properties"].get("activity") == "active"]
     historical = [f for f in features if f["properties"].get("activity") == "historical"]
 
+    # What the DATA actually used, counted from the analyses themselves. The
+    # service's default config is not the answer: it describes the fallback for
+    # a scene that names no config of its own.
+    wind_sources: dict[str, int] = {}
+    current_sources: dict[str, int] = {}
+    for analysis in analyses:
+        for attribution in analysis.attributions:
+            fields = attribution.evidence.get("field_sources") or {}
+            if fields.get("wind"):
+                wind_sources[fields["wind"]] = wind_sources.get(fields["wind"], 0) + 1
+            if fields.get("currents"):
+                current_sources[fields["currents"]] =                     current_sources.get(fields["currents"], 0) + 1
+        for candidate in analysis.candidates:
+            source = getattr(candidate.wind, "source", None)
+            if source and not wind_sources:
+                wind_sources[source] = wind_sources.get(source, 0) + 1
+
     return {
         "type": "FeatureCollection",
         "features": features,
         "meta": {
+            "wind_sources": wind_sources,
+            "currents_sources": current_sources,
             "n_scenes": len(analyses),
             "n_slicks": len(features),
             "n_active": len(active),

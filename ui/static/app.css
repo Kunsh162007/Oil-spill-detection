@@ -543,13 +543,27 @@ html, body {
   .voyage-line { font-size: 9px; }
 }
 
-/* Touch targets need to be finger-sized regardless of viewport. */
+/* Touch targets need to be finger-sized regardless of viewport.
+ * WCAG 2.5.8 asks for at least 24x24 CSS px; measured on a phone the layer
+ * checkboxes were 13px and the Leaflet zoom buttons 30px, so both are raised
+ * here rather than left to the library defaults. */
 @media (pointer: coarse) {
-  .tab { padding: 10px 12px; }
-  .filter-btn { padding: 7px 12px; }
-  .tl-step { padding: 4px 0; }
-  .layer-row { padding: 6px 0; }
-  .layer-row input { width: 16px; height: 16px; }
+  .tab { padding: 12px 14px; min-height: 44px; }
+  .filter-btn { padding: 9px 14px; min-height: 36px; }
+  .tl-step { padding: 6px 0; min-height: 44px; }
+
+  .layer-row { padding: 8px 0; min-height: 32px; }
+  .layer-row input { width: 22px; height: 22px; }
+
+  /* Leaflet ships 30px controls; a thumb needs more. */
+  .leaflet-touch .leaflet-bar a,
+  .leaflet-control-zoom a {
+    width: 40px; height: 40px; line-height: 40px; font-size: 20px;
+  }
+
+  /* A slick marker is the primary target on the map and must be tappable
+   * without pinch-zooming first. */
+  .slick-marker { stroke-width: 3px; }
 }
 
 /* Short landscape windows (a phone turned sideways) have almost no height. */

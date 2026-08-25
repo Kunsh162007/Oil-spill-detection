@@ -420,9 +420,13 @@ def timeline(candidate_id: str, at: str = Query(None, description="ISO time; def
     forward_warnings: list[str] = []
     forward_reliable = True
     try:
+        # scene_id matters: a config using drift.currents_dir holds one field
+        # per scene, and without the id there is nothing to look up. Omitting
+        # it made every timeline fall back to "forward drift failed".
         currents, wind_field = build_fields(
             config, wind_speed_ms=cand.wind.speed_ms,
             wind_direction_deg=cand.wind.direction_deg,
+            scene_id=cand.scene_id,
         )
         result = forward_drift(
             polygon_lonlat=_parse_polygon(cand.polygon_wkt),

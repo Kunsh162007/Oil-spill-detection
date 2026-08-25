@@ -335,7 +335,17 @@ def _attribute_one(
             config,
             wind_speed_ms=cand.wind.speed_ms,
             wind_direction_deg=cand.wind.direction_deg,
+            scene_id=scene.scene_id,
         )
+        # Record where the fields actually came from. The health endpoint can
+        # only report the DEFAULT config, so a dashboard reading it announced
+        # "wind: synthetic, currents: synthetic" while every real scene was
+        # running on ERA5 and CMEMS - the opposite of the truth, on the one
+        # surface a viewer reads first.
+        extra["field_sources"] = {
+            "currents": getattr(currents, "source", None) or getattr(currents, "name", "?"),
+            "wind": cand.wind.source,
+        }
         drift = run_backward_drift(
             candidate=cand,
             observed_at=scene.acquired_at,

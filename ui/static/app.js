@@ -378,6 +378,19 @@ function renderTab(name) {
   else if (name === "past") renderPast();
 }
 
+
+// What the analyses actually used, not what the service default config says.
+// The health endpoint can only report the fallback config, so it announced
+// "synthetic" for both while every real scene ran on ERA5 and CMEMS. Falls
+// back to the health value only when the index carries no counts.
+function fieldSummary(key, fallback) {
+  const counts = (state.slicksMeta || {})[key] || {};
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return fallback || "--";
+  if (entries.length === 1) return entries[0][0];
+  return entries.map(([name, n]) => `${name} (${n})`).join(", ");
+}
+
 function renderOverview() {
   const s = state.stats || {};
   const h = state.health || {};
@@ -431,25 +444,13 @@ function renderOverview() {
         <dt>Segmentation</dt><dd class="mono" title="${esc(b.segmentation || "")}">${
           esc((b.segmentation || "--").split(" (")[0])}</dd>
         <dt>Drift model</dt><dd class="mono">${esc(b.drift || "--")}</dd>
-        <dt>Wind source</dt><dd class="mono">${esc(b.wind || "--")}</dd>
-        <dt>Currents</dt><dd class="mono">${esc(b.currents || "--")}</dd>
+        <dt>Wind source</dt><dd class="mono">${esc(fieldSummary("wind_sources", b.wind))}</dd>
+        <dt>Currents</dt><dd class="mono">${esc(fieldSummary("currents_sources", b.currents))}</dd>
         <dt>GPU</dt><dd class="mono">${b.cuda ? "available" : "CPU only"}</dd>
         <dt>Registry</dt><dd>${(s.documented_incidents ?? 0).toLocaleString()} incidents</dd>
         <dt>Corroborated</dt><dd>${s.corroborated_by_registry ?? 0} detections</dd>
       </dl>
     </div>
-
-    ${s.stage_seconds ? `
-    <div class="section">
-      <h3>Latency by stage</h3>
-      <dl class="kv">
-        ${Object.entries(s.stage_seconds)
-          .sort((a, b2) => b2[1] - a[1])
-          .map(([k, v]) => `<dt>${esc(k.replace(/_/g, " "))}</dt><dd>${fmt(v, 2)} s</dd>`)
-          .join("")}
-        <dt><b>Total</b></dt><dd><b>${fmt(s.total_seconds, 2)} s</b></dd>
-      </dl>
-    </div>` : ""}
 
     ${(s.abstention_rate ?? 0) > 0.9 ? `
     <div class="notice caution" style="margin-top:0;margin-bottom:14px">

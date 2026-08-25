@@ -216,7 +216,8 @@ def _build_opendrift_readers(currents: VectorField, wind: VectorField | None) ->
 
 
 def build_fields(config, wind_speed_ms: float | None = None,
-                 wind_direction_deg: float = 0.0) -> tuple[VectorField, VectorField]:
+                 wind_direction_deg: float = 0.0,
+                 scene_id: str | None = None) -> tuple[VectorField, VectorField]:
     """Assemble the current and wind fields named in config.
 
     Synthetic currents are only ever used when config asks for them by name,
@@ -228,10 +229,29 @@ def build_fields(config, wind_speed_ms: float | None = None,
     if source == "cmems":
         from drift.readers import NetCDFField
 
+        from core.config import resolve_path
+
+        # A config can name one file, or a directory holding one field per
+        # scene. configs/live.yaml is shared by scenes from the Mediterranean to
+        # the South China Sea, and no single current field covers that, so the
+        # per-scene form is what makes real currents usable there at all.
         path = d.get("currents_path")
+        directory = d.get("currents_dir")
+        if not path and directory and scene_id:
+            candidate = resolve_path(directory) / f"{scene_id}.nc"
+            if not candidate.exists():
+                raise FileNotFoundError(
+                    f"drift.currents_dir is set but {candidate.name} is not in "
+                    f"{candidate.parent}. Fetch it with scripts/fetch_currents.py, "
+                    f"or change drift.currents_source."
+                )
+            path = candidate
         if not path:
-            raise ValueError("drift.currents_source is 'cmems' but drift.currents_path is unset")
-        currents: VectorField = NetCDFField(path, name="cmems")
+            raise ValueError(
+                "drift.currents_source is 'cmems' but neither drift.currents_path "
+                "nor drift.currents_dir (with a scene id) resolved to a file"
+            )
+        currents: VectorField = NetCDFField(resolve_path(path), name="cmems")
     elif source == "constant":
         currents = ConstantField.from_speed_direction(
             float(d.get("current_speed_ms", 0.2)),

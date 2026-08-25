@@ -1,0 +1,20 @@
+{
+  "scene_id": "S1A_IW_GRDH_1SDV_20230630T122321_20230630T122350_049215_05EAFC_A88F",
+  "label": null,
+  "acquired_at": "2023-06-30T12:23:21.005350+00:00",
+  "bbox": [
+    -96.071016,
+    29.031106,
+    -94.799541,
+    29.325979
+  ],
+  "vv_path": "data\\demo_finale\\S1A_IW_GRDH_1SDV_20230630T122321_20230630T122350_049215_05EAFC_A88F_vv.tif",
+  "vh_path": "data\\demo_finale\\S1A_IW_GRDH_1SDV_20230630T122321_20230630T122350_049215_05EAFC_A88F_vh.tif",
+  "orbit_direction": "UNKNOWN",
+  "config": "configs/real_gom.yaml",
+  "REAL_IMAGERY": true,
+  "source": "AWS Open Data sentinel-s1-l1c (public, no credentials)",
+  "age_hours_at_fetch": 11.6,
+  "ais_path": "data/demo_finale/galveston_ais.csv",
+  "currents_path": "data/currents/S1A_IW_GRDH_1SDV_20230630T122321_20230630T122350_049215_05EAFC_A88F.nc"
+}

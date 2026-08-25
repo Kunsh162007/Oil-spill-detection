@@ -55,19 +55,14 @@ RUN test -s api/main.py && test -s core/contracts.py && test -s ui/static/app.js
 # on it, which is far harder to notice than a build that stops here.
 RUN n=$(ls data/precomputed/*.pkl 2>/dev/null | wc -l); m=$(cat data/live/*.json data/demo_finale/*.json 2>/dev/null | grep -c scene_id); echo "precomputed analyses: $n   scene manifests: $m"; test "$n" -ge 10 && test "$m" -ge 10 || (echo "FATAL: precomputed analyses missing - check .dockerignore data/ rules" && exit 1)
 
-# Demo scenes and the documented-incident registry, baked in so a cold
-# container has data on its first request. PaaS disks are ephemeral.
-# Scenes are generated at 700 px rather than the 1400 px default. A free
-# container has 512 MB, and analysing a 1400 px scene peaks past that - the
-# health check survives but the first real request kills the worker, which
-# surfaces as a 502 rather than an error. Quartering the pixel count keeps the
-# whole pipeline inside the budget; the planted slicks stay clearly visible.
-RUN mkdir -p data/demo_internal data/reference \
-    && python scripts/make_demo_scene.py --size 700 \
-    && python scripts/make_demo_scene.py --calm-wind --name CALM_WIND_DEMO \
-         --bbox "74.20,9.05,74.80,9.65" --seed 21 --size 700 \
-    && (python scripts/fetch_incidents.py || \
-        echo "WARNING: incident registry unavailable at build time")
+# The documented-incident registry, baked in so a cold container has the world
+# incident layer on its first request. PaaS disks are ephemeral.
+#
+# Synthetic demo scenes are NOT generated any more. They existed before real
+# imagery was wired up; with sixteen real scenes carrying real ERA5 wind, real
+# AIS and real CMEMS currents, a fabricated scene on the same map is a liability
+# rather than a fallback - a viewer cannot tell which is which at a glance.
+RUN mkdir -p data/reference     && (python scripts/fetch_incidents.py ||         echo "WARNING: incident registry unavailable at build time")
 
 # Analyse every scene here, where memory is plentiful, and ship only the
 # result. A 512 MB container cannot run the pipeline per request - the worker
