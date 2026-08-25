@@ -17,9 +17,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt ./
+# The API-only dependency set. requirements.txt is the development list and
+# pulls matplotlib, pandas and scikit-learn, which only the training and
+# eval scripts use - on a 512 MB container that overhead alone can exhaust
+# memory before a single request is served.
+COPY requirements-api.txt ./
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -r requirements.txt \
+    && python -m pip install -r requirements-api.txt \
     && python -m pip install global-land-mask \
     && apt-get purge -y gcc g++ && apt-get autoremove -y
 

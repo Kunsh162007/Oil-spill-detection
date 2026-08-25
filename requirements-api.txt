@@ -1,0 +1,31 @@
+# Runtime dependencies for the API container ONLY.
+#
+# requirements.txt is the development set. Installing it in the container
+# pulls matplotlib, pandas and scikit-learn, which are used exclusively by
+# scripts/train.py, scripts/eval.py, scripts/bakeoff.py and
+# scripts/prepare_dataset.py - none of which run in the service. On a 512 MB
+# free tier that overhead is the difference between serving a request and
+# being OOM-killed before one arrives.
+#
+# Anything added here must be imported by core/, ingest/, detect/, drift/,
+# attribute/, decision/ or api/ at request time.
+
+numpy>=1.26,<3
+scipy>=1.11
+scikit-image>=0.22        # GLCM texture features in detect/polygonize.py
+
+shapely>=2.0              # polygon geometry, particle seeding
+rasterio>=1.3             # scene IO, windowed and remote reads
+pyproj>=3.6               # required by rasterio for CRS handling
+
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+pydantic-settings>=2.2
+
+pyyaml>=6.0               # config loading
+python-dotenv>=1.0
+requests>=2.31            # CDSE catalogue, AWS mirror, NOAA registry
+orjson>=3.9
+
+global-land-mask>=1.0     # offline coastline, no download at runtime
