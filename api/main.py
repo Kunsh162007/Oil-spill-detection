@@ -312,12 +312,14 @@ def _find_candidate(store: AnalysisStore, candidate_id: str):
 def slick_detail(candidate_id: str):
     """Full detail for one slick: physics, drift origin, ranked vessels."""
     store = get_store()
-    cand, attribution, _ = _find_candidate(store, candidate_id)
+    cand, attribution, analysis = _find_candidate(store, candidate_id)
     if cand is None:
         raise HTTPException(404, f"Unknown slick: {candidate_id}")
     if attribution is None:
         raise HTTPException(500, f"No attribution recorded for {candidate_id}")
-    return JSONResponse(attribution_detail(cand, attribution))
+    return JSONResponse(attribution_detail(
+        cand, attribution,
+        synthetic=bool(analysis.stats.get("synthetic")) if analysis else False))
 
 
 @app.get("/api/slicks/{candidate_id}/backtrace")
@@ -328,7 +330,7 @@ def backtrace(candidate_id: str):
     date and time as the oil crawls back to its origin.
     """
     store = get_store()
-    cand, attribution, _ = _find_candidate(store, candidate_id)
+    cand, attribution, analysis = _find_candidate(store, candidate_id)
     if cand is None:
         raise HTTPException(404, f"Unknown slick: {candidate_id}")
     if attribution is None or attribution.origin is None:
@@ -339,7 +341,9 @@ def backtrace(candidate_id: str):
         )
 
     origin = attribution.origin
-    detail = attribution_detail(cand, attribution)
+    detail = attribution_detail(
+        cand, attribution,
+        synthetic=bool(analysis.stats.get("synthetic")) if analysis else False)
     return JSONResponse({
         "candidate_id": candidate_id,
         "observed_at": cand.wind.source and detail["evidence"].get("drift", {}).get("estimated_at"),

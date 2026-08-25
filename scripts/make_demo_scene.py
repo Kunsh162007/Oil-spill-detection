@@ -336,9 +336,13 @@ def main() -> int:
         "note": "Generated for pipeline testing. Never report numbers from this scene.",
         "acquired_at": acquired_at.isoformat(),
         "bbox": list(bbox),
-        "vv_path": str(vv_path.relative_to(REPO_ROOT)),
-        "vh_path": str(vh_path.relative_to(REPO_ROOT)),
-        "ais_path": str(ais_path.relative_to(REPO_ROOT)),
+        # as_posix(), not str(): a manifest written on Windows carries
+        # backslashes, and the container that reads it runs Linux, where
+        # "data\demo_internal\x.tif" is one filename that does not exist
+        # rather than a path. Same failure as pickling a WindowsPath.
+        "vv_path": vv_path.relative_to(REPO_ROOT).as_posix(),
+        "vh_path": vh_path.relative_to(REPO_ROOT).as_posix(),
+        "ais_path": ais_path.relative_to(REPO_ROOT).as_posix(),
         "orbit_direction": "DESCENDING",
         "truth": truth,
         "expected_origin": {"lon": round(origin_lon, 5), "lat": round(origin_lat, 5)},

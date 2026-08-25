@@ -210,6 +210,11 @@ def main() -> int:
         # analysis. Dropping it turns a multi-megabyte pickle into a small one,
         # which is the whole point of caching the result rather than the input.
         analysis.stats.pop("ingest", None)
+        # Carry the manifest's SYNTHETIC flag into the result. A fabricated
+        # scene sits on the same map as fifteen real ones, and a viewer
+        # clicking its slick must be told - the ranked vessels on it are
+        # invented, and nothing downstream can infer that from the polygon.
+        analysis.stats["synthetic"] = bool(data.get("SYNTHETIC"))
 
         target = out_dir / f"{scene_id}.pkl"
         tmp = target.with_suffix(".tmp")

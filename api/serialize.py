@@ -176,12 +176,16 @@ def scene_collection(analysis: SceneAnalysis) -> dict[str, Any]:
 
 
 def attribution_detail(
-    candidate: SlickCandidate, attribution: Attribution
+    candidate: SlickCandidate, attribution: Attribution,
+    synthetic: bool = False,
 ) -> dict[str, Any]:
     """The full detail view: origin, drift track, ranked vessels, evidence."""
     origin = attribution.origin
     detail: dict[str, Any] = {
         "candidate_id": candidate.candidate_id,
+        # A fabricated scene must announce itself here too: the detail view is
+        # where the ranked vessels are read, and they are invented.
+        "synthetic": bool(synthetic),
         "source_type": attribution.source_type,
         "abstained": attribution.abstained,
         "abstain_reason": attribution.abstain_reason,
@@ -254,6 +258,9 @@ def world_index(analyses: list[SceneAnalysis]) -> dict[str, Any]:
                 continue
             feature = slick_feature(c, by_id.get(c.candidate_id), analysis.scene.scene_id,
                                     analysis.scene.acquired_at)
+            # Stamped per feature, not per scene: the map draws features, and
+            # this must survive being pulled out of the collection.
+            feature["properties"]["synthetic"] = bool(analysis.stats.get("synthetic"))
             tier = feature["properties"].get("confidence_tier")
             # Only "confirmed" and "probable" are presented as actual oil.
             # Lower tiers stay available through the per-scene endpoint.

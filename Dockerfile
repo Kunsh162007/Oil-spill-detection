@@ -58,11 +58,14 @@ RUN n=$(ls data/precomputed/*.pkl 2>/dev/null | wc -l); m=$(cat data/live/*.json
 # The documented-incident registry, baked in so a cold container has the world
 # incident layer on its first request. PaaS disks are ephemeral.
 #
-# Synthetic demo scenes are NOT generated any more. They existed before real
-# imagery was wired up; with sixteen real scenes carrying real ERA5 wind, real
-# AIS and real CMEMS currents, a fabricated scene on the same map is a liability
-# rather than a fallback - a viewer cannot tell which is which at a glance.
-RUN mkdir -p data/reference     && (python scripts/fetch_incidents.py ||         echo "WARNING: incident registry unavailable at build time")
+# ONE synthetic scene is generated, and only because no real scene here can
+# demonstrate vessel ranking: the Indian Ocean passes have no AIS coverage,
+# Taylor Energy MC-20 is correctly routed to infrastructure and names nobody,
+# and the Galveston shipping-lane pass contained no slick. It is flagged
+# SYNTHETIC in its manifest, which the API stamps onto every feature it
+# produces, and the UI draws it dashed and refuses to show its detail view
+# without a "not a real detection" banner.
+RUN mkdir -p data/reference data/demo_internal     && python scripts/make_demo_scene.py --size 700     && (python scripts/fetch_incidents.py ||         echo "WARNING: incident registry unavailable at build time")
 
 # Analyse every scene here, where memory is plentiful, and ship only the
 # result. A 512 MB container cannot run the pipeline per request - the worker

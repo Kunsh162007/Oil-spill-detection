@@ -192,6 +192,7 @@ class AnalysisStore:
         analysis = analyse_scene(
             scene, config, wind_lookup=wind_lookup, ais_tracks=ais_tracks
         )
+        analysis.stats["synthetic"] = bool(data.get("SYNTHETIC"))
         with self._lock:
             self._remember(scene_id, analysis)
         return analysis

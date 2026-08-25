@@ -256,7 +256,7 @@ function drawSlickLayers() {
       const poly = L.polygon(g.coordinates[0].map(([lon, lat]) => [lat, lon]), {
         color, weight: isPast ? 1.5 : 2, fillColor: color,
         fillOpacity: !p.is_oil ? 0.12 : isPast ? 0.2 : 0.35,
-        dashArray: p.is_oil ? null : "4,4",
+        dashArray: p.synthetic ? "7,5" : (p.is_oil ? null : "4,4"),
       });
       poly._isSlickPolygon = true;
       target.addLayer(poly);
@@ -276,6 +276,8 @@ function slickTooltip(p, isPast) {
   return `<b>${esc(p.label || p.candidate_id)}</b><br>` +
     `${fmt(p.area_km2)} km&sup2; &middot; P(oil) ${fmt(p.p_oil)}<br>` +
     `wind ${fmt((p.wind || {}).speed_ms, 1)} m/s` +
+    (p.synthetic ? '<br><b class="synth-flag">SYNTHETIC DEMONSTRATION SCENE</b>' +
+       '<br><i>fabricated imagery and invented AIS &mdash; not a real detection</i>' : "") +
     (isPast ? `<br><i>past incident &mdash; ${fmt(p.age_days, 0)} days old</i>` : "") +
     (p.corroborated
       ? `<br><b style="color:${C.confirmed}">confirmed by incident registry</b>` : "") +
@@ -705,8 +707,22 @@ function renderDetailPanel(d, trace) {
     ? "Insufficient evidence to rank a source"
     : `${d.vessels.length} candidate vessel(s), ranked by correlation`;
 
+  // The synthetic scene exists only to demonstrate vessel ranking, which no
+  // real scene here can show: the Indian Ocean passes have no AIS coverage,
+  // MC-20 is correctly routed to infrastructure, and the Galveston pass had no
+  // slick. It must announce itself before any of its numbers are read.
+  const synthNotice = d.synthetic ? `
+      <div class="notice synthetic" style="margin-top:0">
+        <b>SYNTHETIC DEMONSTRATION &mdash; not a real detection.</b>
+        The imagery, the slick and the AIS tracks below are all fabricated, and
+        exist to show how vessel ranking works. Every other scene on this map is
+        real Sentinel-1 data with real ERA5 wind and real CMEMS currents. Never
+        quote a number from this scene.
+      </div>` : "";
+
   $("panel-body").innerHTML = `
     <button class="back-link" id="back-btn">&larr; Back</button>
+    ${synthNotice}
 
     ${corr && corr.confirmed ? `
       <div class="notice confirmed">

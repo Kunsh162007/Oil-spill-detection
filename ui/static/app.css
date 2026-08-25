@@ -349,6 +349,14 @@ html, body {
   border-radius: var(--r-sm); border: 1px solid;
 }
 .notice.caution { color: var(--abstain); background: rgba(245,165,36,.07); border-color: rgba(245,165,36,.2); }
+/* A fabricated scene has to be legible as such at a glance, in the map popup
+ * as well as the panel. */
+.synth-flag {
+  display: inline-block; margin-top: 4px; padding: 2px 6px; border-radius: 3px;
+  background: rgba(192, 132, 252, .18); color: #c084fc;
+  font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase;
+}
+
 .notice.synthetic { color: var(--dark); background: rgba(192,132,252,.07); border-color: rgba(192,132,252,.22); }
 .notice.confirmed { color: var(--confirmed); background: rgba(52,211,153,.07); border-color: rgba(52,211,153,.22); }
 .notice b { font-weight: 660; }
