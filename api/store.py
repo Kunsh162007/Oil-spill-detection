@@ -21,6 +21,25 @@ from decision.pipeline import SceneAnalysis, analyse_scene
 log = logging.getLogger(__name__)
 
 
+def live_analysis_allowed() -> bool:
+    """Whether this process may run the pipeline on demand.
+
+    A container sized for serving cached results cannot run an analysis: the
+    coastline grid alone is 933 MB resident. Without this switch a single
+    "re-analyse" click OOM-kills the service and takes the whole map down with
+    it, which is a much worse failure than refusing the request. Defaults to
+    allowed, so local runs and scripts are unaffected.
+    """
+    import os
+
+    return os.getenv("ALLOW_LIVE_ANALYSIS", "true").strip().lower() not in (
+        "0", "false", "no", "off")
+
+
+class LiveAnalysisDisabled(RuntimeError):
+    """Raised when a scene has no cached analysis and none may be computed."""
+
+
 # How many scene analyses to hold in memory at once. The world map is served
 # from a prebuilt index, so the only thing that loads an analysis is a user
 # clicking one slick; keeping a few around covers the follow-up requests for
@@ -144,6 +163,13 @@ class AnalysisStore:
         data = self._manifests.get(scene_id)
         if data is None:
             raise KeyError(f"Unknown scene: {scene_id}")
+
+        if not live_analysis_allowed():
+            raise LiveAnalysisDisabled(
+                f"No cached analysis for {scene_id}, and live analysis is "
+                f"disabled in this deployment (ALLOW_LIVE_ANALYSIS=false). "
+                f"Run scripts/precompute.py and rebuild the image."
+            )
 
         scene = self.scene_from_manifest(data)
         config = self._config_for(data)

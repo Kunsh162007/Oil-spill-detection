@@ -18,13 +18,33 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-try:
-    from global_land_mask import globe as _globe
+# global_land_mask allocates its whole coastline grid on import: a
+# 21600 x 43200 boolean array, 933 MB resident. That is affordable inside a
+# training or analysis run and ruinous anywhere else - a 512 MB API container
+# is killed by the import alone, before it serves anything. So it is loaded on
+# first use and cached, never at import time.
+_globe = None
+_GLOBE_TRIED = False
 
-    _HAS_GLOBE = True
-except ImportError:  # pragma: no cover - exercised only on a broken install
-    _HAS_GLOBE = False
-    log.warning("global_land_mask unavailable; falling back to radiometric land detection")
+
+def _load_globe():
+    """The bundled coastline grid, loaded once on first use.
+
+    Returns None when the package is missing; callers fall back to radiometric
+    land detection.
+    """
+    global _globe, _GLOBE_TRIED
+    if _GLOBE_TRIED:
+        return _globe
+    _GLOBE_TRIED = True
+    try:
+        from global_land_mask import globe
+
+        _globe = globe
+    except ImportError:  # pragma: no cover - exercised only on a broken install
+        log.warning("global_land_mask unavailable; "
+                    "falling back to radiometric land detection")
+    return _globe
 
 # Buffer applied around detected land. Coastal returns bleed several pixels
 # offshore, and a slick "detected" in that bleed is always spurious.
@@ -35,12 +55,13 @@ def geographic_land_mask(
     lons: np.ndarray, lats: np.ndarray
 ) -> np.ndarray:
     """True where the coordinate falls on land, from the bundled coastline."""
-    if not _HAS_GLOBE:
+    globe = _load_globe()
+    if globe is None:
         return np.zeros(np.shape(lons), dtype=bool)
     lat = np.clip(np.asarray(lats, dtype=np.float64), -90.0, 90.0)
     lon = np.asarray(lons, dtype=np.float64)
     lon = (lon + 180.0) % 360.0 - 180.0
-    return np.asarray(_globe.is_land(lat, lon), dtype=bool)
+    return np.asarray(globe.is_land(lat, lon), dtype=bool)
 
 
 def land_mask_for_bbox(
@@ -111,7 +132,9 @@ def build_land_mask(
     Uses the coastline where the scene is geolocated, and falls back to
     radiometry only when it is not.
     """
-    if bbox is not None and _HAS_GLOBE:
+    # _load_globe() pays the grid's load cost, which is correct here: this
+    # branch is about to rasterise the coastline anyway.
+    if bbox is not None and _load_globe() is not None:
         mask = land_mask_for_bbox(bbox, sigma0_db.shape)
         source = "coastline"
     else:

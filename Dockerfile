@@ -80,8 +80,13 @@ RUN python scripts/precompute.py --skip-existing     || echo "WARNING: precomput
 
 # 7860 is the Hugging Face Spaces convention; $PORT overrides it on Render,
 # Railway and Fly, all of which inject their own.
+# ALLOW_LIVE_ANALYSIS=false: every scene in this image already has a cached
+# analysis, and running the pipeline here would fail anyway - the coastline
+# grid alone is 933 MB resident against a 512 MB limit. Refusing the request
+# beats being OOM-killed and taking the whole map down.
 ENV OILSPILL_CONFIG=configs/demo_synthetic.yaml \
     SERVE_UI=true \
+    ALLOW_LIVE_ANALYSIS=false \
     PORT=7860
 EXPOSE 7860
 

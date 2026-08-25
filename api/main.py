@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from core.config import REPO_ROOT, load_config
 from api.serialize import (attribution_detail, refresh_ages, scene_collection,
                            world_index)
-from api.store import AnalysisStore
+from api.store import AnalysisStore, live_analysis_allowed
 from decision.rank import DISCLAIMER
 
 logging.basicConfig(
@@ -117,13 +118,18 @@ def health() -> dict[str, Any]:
     config = _state.get("config")
     from drift.runner import opendrift_available
 
+    # Deliberately does NOT import torch. Importing it costs ~160 MB resident,
+    # and a health check is the one request that must stay cheap - platforms
+    # poll it continuously, and it has to answer while the service is under
+    # memory pressure. If an analysis has already loaded torch we report what
+    # it found; otherwise CUDA is simply unknown from here.
     torch_cuda = False
-    try:
-        import torch
-
-        torch_cuda = bool(torch.cuda.is_available())
-    except ImportError:
-        pass
+    torch_module = sys.modules.get("torch")
+    if torch_module is not None:
+        try:
+            torch_cuda = bool(torch_module.cuda.is_available())
+        except Exception:  # pragma: no cover - driver problems are not our concern here
+            torch_cuda = False
 
     checkpoint = REPO_ROOT / str(config.get("detect.checkpoint", "models/stage_b.pt")) if config else None
 
@@ -141,9 +147,42 @@ def health() -> dict[str, Any]:
             "wind": (config.get("wind.source", "synthetic") if config else None),
             "currents": (config.get("drift.currents_source", "synthetic") if config else None),
         },
+        "memory": _memory_report(),
         "disclaimer": DISCLAIMER,
         "timeliness": "near-real-time (imagery 3-24 h; free AIS ~72 h)",
     }
+
+
+def _memory_report() -> dict[str, Any]:
+    """Resident and peak memory, so a container's real usage is observable.
+
+    Free tiers report an OOM kill and nothing else - no traceback, no line
+    number, and the process that could have told you is gone. Publishing the
+    numbers on the health endpoint means the next memory question is answered
+    by measurement rather than by inference from a crash.
+    """
+    report: dict[str, Any] = {"limit_hint_mb": 512}
+    try:
+        import resource
+
+        # ru_maxrss is KB on Linux, bytes on macOS.
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        report["peak_mb"] = round(peak / (1024 if sys.platform != "darwin" else 1024 ** 2), 1)
+    except (ImportError, OSError):
+        pass
+    try:
+        # Linux only, and the number that actually matters: current RSS.
+        with open("/proc/self/statm", "r", encoding="utf-8") as fh:
+            pages = int(fh.read().split()[1])
+        report["rss_mb"] = round(pages * os.sysconf("SC_PAGE_SIZE") / 1e6, 1)
+    except (OSError, ValueError, AttributeError):
+        pass
+    report["heavy_imports"] = sorted(
+        m for m in ("torch", "global_land_mask", "rasterio", "skimage",
+                    "scipy", "pandas", "sklearn", "matplotlib")
+        if m in sys.modules
+    )
+    return report
 
 
 @app.get("/api/scenes")
@@ -232,6 +271,14 @@ def get_scene(scene_id: str):
 def reanalyse(scene_id: str):
     """Force a re-run, ignoring the cached analysis."""
     store = get_store()
+    if not live_analysis_allowed():
+        # 503 rather than a crash: refusing is far better than being killed
+        # mid-request and taking every other endpoint down with us.
+        raise HTTPException(503, (
+            "Live re-analysis is disabled in this deployment. Results are "
+            "precomputed at build time; a container this size cannot run the "
+            "pipeline. See scripts/precompute.py."
+        ))
     try:
         analysis = store.get(scene_id, force=True)
     except KeyError:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -244,3 +245,57 @@ def test_store_evicts_analyses_beyond_the_cache_bound():
     # The most recent survive; the oldest are gone.
     assert "scene-0" not in store._analyses
     assert f"scene-{MAX_CACHED_ANALYSES + 3}" in store._analyses
+
+
+# -- memory landmines --------------------------------------------------------
+
+def test_importing_landmask_does_not_load_the_coastline_grid():
+    """global_land_mask allocates 933 MB on import.
+
+    That is a 21600 x 43200 boolean array. Importing it at module scope kills
+    any container smaller than a gigabyte before it serves a single request, so
+    ingest.landmask must defer it to first use. This test fails the moment
+    somebody moves the import back to the top of the file.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; import ingest.landmask; "
+        "print('global_land_mask' in sys.modules)"
+    )
+    result = subprocess.run([sys.executable, "-c", code],
+                            capture_output=True, text=True,
+                            cwd=str(Path(__file__).resolve().parents[2]))
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False", (
+        "ingest.landmask imported global_land_mask at module scope; "
+        "that is 933 MB resident before any work is done"
+    )
+
+
+def test_live_analysis_can_be_switched_off(monkeypatch):
+    from api.store import live_analysis_allowed
+
+    monkeypatch.delenv("ALLOW_LIVE_ANALYSIS", raising=False)
+    assert live_analysis_allowed() is True
+
+    for value in ("false", "FALSE", "0", "no", "off"):
+        monkeypatch.setenv("ALLOW_LIVE_ANALYSIS", value)
+        assert live_analysis_allowed() is False, value
+
+    monkeypatch.setenv("ALLOW_LIVE_ANALYSIS", "true")
+    assert live_analysis_allowed() is True
+
+
+def test_health_does_not_import_torch(client):
+    """A health check must stay cheap; importing torch costs ~160 MB."""
+    import sys
+
+    sys.modules.pop("torch", None)
+    body = client.get("/api/health").json()
+
+    assert "torch" not in sys.modules
+    assert "memory" in body
+    assert "torch" not in body["memory"]["heavy_imports"]
