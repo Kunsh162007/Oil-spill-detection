@@ -17,6 +17,7 @@ deliberate: the caveat should be impossible to drop by accident.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -29,7 +30,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.config import REPO_ROOT, load_config
-from api.serialize import attribution_detail, scene_collection, world_index
+from api.serialize import (attribution_detail, refresh_ages, scene_collection,
+                           world_index)
 from api.store import AnalysisStore
 from decision.rank import DISCLAIMER
 
@@ -162,10 +164,40 @@ def list_scenes() -> dict[str, Any]:
     return {"scenes": scenes, "count": len(scenes)}
 
 
+WORLD_INDEX_CACHE = "data/precomputed/world_index.json"
+
+
+def _cached_world_index() -> dict | None:
+    """The world index as built at image build time, if it was baked in.
+
+    Holding every scene's analysis in memory at once is what a small container
+    cannot afford - not the pipeline, the RESULTS. Thirteen scenes deserialised
+    together crash a 512 MB worker, and the map needs all of them on its first
+    request. Reading one JSON file instead keeps that cost flat.
+    """
+    from core.config import resolve_path
+
+    path = resolve_path(WORLD_INDEX_CACHE)
+    if not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError) as exc:
+        log.warning("Cached world index unusable (%s); building it live", exc)
+        return None
+
+
 @app.get("/api/slicks")
 def all_slicks(analyse: bool = Query(True, description="analyse any scene not yet processed")):
     """World index: confirmed slicks across every scene. Feeds the main map."""
     store = get_store()
+
+    cached = _cached_world_index()
+    if cached is not None:
+        # Ages are recomputed per request; everything else is fixed at build.
+        return JSONResponse(refresh_ages(cached))
+
     analyses = []
     errors: dict[str, str] = {}
 

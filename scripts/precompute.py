@@ -32,6 +32,41 @@ sys.path.insert(0, str(REPO_ROOT))
 CACHE_DIRNAME = "precomputed"
 
 
+def _write_world_index(out_dir: Path) -> None:
+    """Build the map's world index once, so the API never has to.
+
+    Serving /api/slicks means holding EVERY scene's analysis in memory at the
+    same time. That is what exhausts a small container - not the pipeline, the
+    results - and it happens on the map's very first request. Writing the
+    finished GeoJSON here turns that into a single file read. Age fields are
+    recomputed per request by api.serialize.refresh_ages, so a cached index
+    never claims a stale detection is current.
+    """
+    from api.serialize import world_index
+
+    analyses = []
+    for path in sorted(out_dir.glob("*.pkl")):
+        try:
+            with path.open("rb") as fh:
+                analyses.append(pickle.load(fh))
+        except Exception as exc:
+            print(f"  WARNING: {path.name} unreadable for the index ({exc})")
+
+    if not analyses:
+        print("  WARNING: no analyses to index; the API will build it live")
+        return
+
+    payload = world_index(analyses)
+    target = out_dir / "world_index.json"
+    tmp = target.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, separators=(",", ":"))
+    tmp.replace(target)
+    print(f"  world index: {payload['meta']['n_slicks']} slick(s) across "
+          f"{payload['meta']['n_scenes']} scene(s), "
+          f"{target.stat().st_size / 1024:.0f} KB")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", default=None,
@@ -138,6 +173,8 @@ def main() -> int:
               f"{analysis.stats.get('n_rejected', 0)} rejected "
               f"({time.perf_counter() - started:.1f}s, {size_kb:.0f} KB)")
         ok += 1
+
+    _write_world_index(out_dir)
 
     total_kb = sum(p.stat().st_size for p in out_dir.glob("*.pkl")) / 1024
     cached = len(list(out_dir.glob("*.pkl")))

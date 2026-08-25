@@ -21,12 +21,20 @@ from decision.pipeline import SceneAnalysis, analyse_scene
 log = logging.getLogger(__name__)
 
 
+# How many scene analyses to hold in memory at once. The world map is served
+# from a prebuilt index, so the only thing that loads an analysis is a user
+# clicking one slick; keeping a few around covers the follow-up requests for
+# its drift and timeline without letting a browse session grow without bound.
+MAX_CACHED_ANALYSES = 3
+
+
 class AnalysisStore:
-    """Thread-safe cache of per-scene analyses."""
+    """Thread-safe cache of per-scene analyses, bounded to MAX_CACHED_ANALYSES."""
 
     def __init__(self, config: Config) -> None:
         self.config = config
         self.registry = self._load_registry(config)
+        # Insertion-ordered, so the oldest entry is the first key.
         self._analyses: dict[str, SceneAnalysis] = {}
         self._manifests: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
@@ -130,7 +138,7 @@ class AnalysisStore:
             precomputed = self._load_precomputed(scene_id)
             if precomputed is not None:
                 with self._lock:
-                    self._analyses[scene_id] = precomputed
+                    self._remember(scene_id, precomputed)
                 return precomputed
 
         data = self._manifests.get(scene_id)
@@ -150,8 +158,18 @@ class AnalysisStore:
             scene, config, wind_lookup=wind_lookup, ais_tracks=ais_tracks
         )
         with self._lock:
-            self._analyses[scene_id] = analysis
+            self._remember(scene_id, analysis)
         return analysis
+
+    def _remember(self, scene_id: str, analysis: SceneAnalysis) -> None:
+        """Cache one analysis, evicting the oldest once the bound is reached.
+
+        Caller must hold the lock.
+        """
+        self._analyses[scene_id] = analysis
+        while len(self._analyses) > MAX_CACHED_ANALYSES:
+            oldest = next(iter(self._analyses))
+            del self._analyses[oldest]
 
     def _config_for(self, data: dict[str, Any]) -> Config:
         """Per-scene config override, when the manifest names one."""

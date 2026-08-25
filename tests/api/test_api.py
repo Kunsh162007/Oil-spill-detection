@@ -176,3 +176,71 @@ class TestUI:
     def test_static_assets_are_served(self, client):
         assert client.get("/static/app.js").status_code == 200
         assert client.get("/static/app.css").status_code == 200
+
+
+# -- cached world index ------------------------------------------------------
+#
+# The deployed container serves the map from a prebuilt index rather than
+# deserialising every scene's analysis per request; holding all of them at once
+# is what exhausted a 512 MB worker. These cover the part of that cache which
+# can go wrong silently: a frozen "active" flag would tell a viewer that a
+# months-old detection is current oil.
+
+def test_refresh_ages_recomputes_activity_from_acquisition_time():
+    from api.serialize import refresh_ages
+
+    payload = {
+        "features": [
+            {"properties": {"acquired_at": "2020-01-01T00:00:00+00:00",
+                            "activity": "active", "age_hours": 1.0}},
+        ],
+        "meta": {"n_active": 1, "n_historical": 0},
+    }
+
+    refreshed = refresh_ages(payload)
+
+    props = refreshed["features"][0]["properties"]
+    assert props["activity"] == "historical"
+    assert props["age_hours"] > 24_000
+    assert refreshed["meta"]["n_active"] == 0
+    assert refreshed["meta"]["n_historical"] == 1
+
+
+def test_refresh_ages_keeps_a_recent_detection_active():
+    from datetime import datetime, timedelta, timezone
+
+    from api.serialize import refresh_ages
+
+    recent = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
+    payload = {"features": [{"properties": {"acquired_at": recent}}], "meta": {}}
+
+    refreshed = refresh_ages(payload)
+
+    assert refreshed["features"][0]["properties"]["activity"] == "active"
+    assert refreshed["meta"]["n_active"] == 1
+
+
+def test_refresh_ages_tolerates_a_feature_with_no_acquisition_time():
+    """A feature without a timestamp must not take the whole map down."""
+    from api.serialize import refresh_ages
+
+    payload = {"features": [{"properties": {"scene_id": "X"}}], "meta": {}}
+
+    refreshed = refresh_ages(payload)
+
+    assert refreshed["meta"]["n_active"] == 0
+
+
+def test_store_evicts_analyses_beyond_the_cache_bound():
+    from api.store import MAX_CACHED_ANALYSES, AnalysisStore
+
+    store = AnalysisStore.__new__(AnalysisStore)
+    store._analyses = {}
+
+    for i in range(MAX_CACHED_ANALYSES + 4):
+        store._remember(f"scene-{i}", object())
+
+    assert len(store._analyses) == MAX_CACHED_ANALYSES
+    # The most recent survive; the oldest are gone.
+    assert "scene-0" not in store._analyses
+    assert f"scene-{MAX_CACHED_ANALYSES + 3}" in store._analyses

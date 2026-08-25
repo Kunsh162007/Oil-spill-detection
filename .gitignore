@@ -28,3 +28,7 @@ data/live/
 # manifest behind it is never loaded. The imagery stays out via the *.tif rule.
 !data/live/*.json
 data/demo_finale/*.tif
+
+# Derived at build time by scripts/precompute.py from the .pkl files
+# beside it; regenerating is cheap and a stale copy is worse than none.
+data/precomputed/world_index.json

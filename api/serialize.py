@@ -278,3 +278,38 @@ def world_index(analyses: list[SceneAnalysis]) -> dict[str, Any]:
             ),
         },
     }
+
+
+def refresh_ages(payload: dict[str, Any]) -> dict[str, Any]:
+    """Recompute the time-dependent fields on a cached world index.
+
+    The index is built once, at image build time. "Active" means "acquired
+    within ACTIVE_WINDOW_HOURS", which is only true at the instant the cache was
+    written - serving the frozen flag would tell a viewer that a week-old
+    detection is current oil. Acquisition time is immutable and already in every
+    feature, so the age fields are recomputed on the way out.
+
+    Mutates nothing the caller owns: the cached object is reused across
+    requests, so the flags are rewritten in place on a structure that is
+    otherwise identical each time.
+    """
+    from datetime import datetime
+
+    n_active = 0
+    for feature in payload.get("features", []):
+        props = feature.get("properties", {})
+        raw = props.get("acquired_at")
+        if not raw:
+            continue
+        status, age_hours = scene_status(datetime.fromisoformat(raw))
+        props["age_hours"] = round(age_hours, 1)
+        props["age_days"] = round(age_hours / 24.0, 1)
+        props["activity"] = status
+        if status == "active":
+            n_active += 1
+
+    meta = payload.setdefault("meta", {})
+    meta["n_active"] = n_active
+    meta["n_historical"] = len(payload.get("features", [])) - n_active
+    meta["cached"] = True
+    return payload
