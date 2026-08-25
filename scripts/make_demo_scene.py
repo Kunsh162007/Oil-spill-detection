@@ -81,46 +81,71 @@ def build_scene(
 
     truth: dict[str, dict] = {}
 
+    # Feature positions were laid out against a 1400 px scene. They scale with
+    # the requested size so a smaller scene still contains every feature -
+    # hardcoding them puts the wave band outside a 700 px array, and that fails
+    # as an opaque broadcast error rather than anything readable.
+    REFERENCE_SIZE = 1400
+    sy = height / REFERENCE_SIZE
+    sx = width / REFERENCE_SIZE
+    s = min(sy, sx)  # radii and widths, which must stay circular
+
+    def r(value: float) -> int:
+        return int(round(value * sy))
+
+    def c(value: float) -> int:
+        return int(round(value * sx))
+
     # 1. The bilge dump: long, thin, tapering, ~8 dB damping.
-    vv = draw_streak(vv, (430, 250), (505, 1150), width_px=26, damping=0.16)
+    vv = draw_streak(vv, (r(430), c(250)), (r(505), c(1150)),
+                     width_px=max(4, int(round(26 * s))), damping=0.16)
     truth["bilge_dump"] = {
         "kind": "oil", "morphology": "linear",
-        "row_range": [420, 515], "col_range": [250, 1150],
+        "row_range": [r(420), r(515)], "col_range": [c(250), c(1150)],
         "expected": "ACCEPT - real oil from a moving vessel",
     }
 
     if include_lookalikes:
         # 2. Algal bloom: round, irregular, weak damping (~3.5 dB).
-        vv = draw_blob(vv, (980, 380), 95, damping=0.45, irregular=True, rng=rng)
+        bloom_r, bloom_c = r(980), c(380)
+        bloom_rad = max(8, int(round(95 * s)))
+        vv = draw_blob(vv, (bloom_r, bloom_c), bloom_rad,
+                       damping=0.45, irregular=True, rng=rng)
         truth["algal_bloom"] = {
             "kind": "lookalike", "subtype": "biogenic_film",
-            "centre_rc": [980, 380],
+            "centre_rc": [bloom_r, bloom_c],
             "expected": "REJECT - round blob, weak damping",
         }
 
         # 3. Rain cell: near-circular, sharp edge, granular inside.
-        vv = draw_blob(vv, (300, 1050), 70, damping=0.40, irregular=False)
+        rain_r, rain_c = r(300), c(1050)
+        rain_rad = max(6, int(round(70 * s)))
+        vv = draw_blob(vv, (rain_r, rain_c), rain_rad, damping=0.40, irregular=False)
         cell = np.zeros_like(vv, dtype=bool)
         yyc, xxc = np.mgrid[0:height, 0:width]
-        cell[np.hypot(yyc - 300, xxc - 1050) < 70] = True
+        cell[np.hypot(yyc - rain_r, xxc - rain_c) < rain_rad] = True
         vv[cell] *= rng.uniform(0.6, 1.5, size=cell.sum())  # granular texture
         truth["rain_cell"] = {
             "kind": "lookalike", "subtype": "rain_cell",
-            "centre_rc": [300, 1050],
+            "centre_rc": [rain_r, rain_c],
             "expected": "REJECT - circular with granular texture",
         }
 
-        # 4. Internal waves: regular periodic banding.
-        band_rows = slice(1150, 1330)
-        band_cols = slice(600, 1250)
-        cols = np.arange(band_cols.start, band_cols.stop)
-        wave = 1.0 - 0.42 * (np.sin(cols / 11.0) > 0.35)
-        vv[band_rows, band_cols] *= wave[None, :]
-        truth["internal_waves"] = {
-            "kind": "lookalike", "subtype": "internal_waves",
-            "row_range": [1150, 1330], "col_range": [600, 1250],
-            "expected": "REJECT - regular periodic banding",
-        }
+        # 4. Internal waves: regular periodic banding. Clamped to the array so
+        # a small scene yields a shorter train rather than an empty slice.
+        row0, row1 = r(1150), min(height, r(1330))
+        col0, col1 = c(600), min(width, c(1250))
+        if row1 > row0 and col1 > col0:
+            cols = np.arange(col0, col1)
+            # The period scales too, so the banding stays resolvable.
+            period = max(4.0, 11.0 * s)
+            wave = 1.0 - 0.42 * (np.sin(cols / period) > 0.35)
+            vv[row0:row1, col0:col1] *= wave[None, :]
+            truth["internal_waves"] = {
+                "kind": "lookalike", "subtype": "internal_waves",
+                "row_range": [row0, row1], "col_range": [col0, col1],
+                "expected": "REJECT - regular periodic banding",
+            }
 
     # VH sits ~8 dB below VV over the sea; oil suppresses it harder still.
     vh = vv * 0.16
