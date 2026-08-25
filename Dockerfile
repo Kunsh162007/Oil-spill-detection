@@ -38,11 +38,22 @@ COPY ui/ ui/
 COPY scripts/ scripts/
 COPY configs/ configs/
 
+# Scene manifests and their PRECOMPUTED analyses. Without this the image holds
+# only the two scenes it generates below, and the deployed map shows a single
+# detection where a local run shows dozens. .dockerignore keeps the imagery
+# itself out - serving a cached analysis never touches the raster.
+COPY data/ data/
+
 # Fail the build loudly if a source file arrived empty. A truncated COPY
 # produces a container that starts and exits with no error, which is far
 # harder to diagnose than a build that refuses to finish.
 RUN test -s api/main.py && test -s core/contracts.py && test -s ui/static/app.js \
     || (echo "FATAL: source files copied empty - check .dockerignore and disk space" && exit 1)
+
+# The cached analyses are the deployed map's entire content. A .dockerignore
+# edit that silently drops them yields a working service with one detection
+# on it, which is far harder to notice than a build that stops here.
+RUN n=$(ls data/precomputed/*.pkl 2>/dev/null | wc -l); m=$(cat data/live/*.json data/demo_finale/*.json 2>/dev/null | grep -c scene_id); echo "precomputed analyses: $n   scene manifests: $m"; test "$n" -ge 10 && test "$m" -ge 10 || (echo "FATAL: precomputed analyses missing - check .dockerignore data/ rules" && exit 1)
 
 # Demo scenes and the documented-incident registry, baked in so a cold
 # container has data on its first request. PaaS disks are ephemeral.
@@ -62,7 +73,10 @@ RUN mkdir -p data/demo_internal data/reference \
 # result. A 512 MB container cannot run the pipeline per request - the worker
 # is OOM-killed mid-request, which surfaces as a 502 with no body - but it can
 # comfortably deserialise a few hundred KB of polygons and scores.
-RUN python scripts/precompute.py ||     echo "WARNING: precompute failed; the container will analyse on demand and may exhaust memory"
+# --skip-existing leaves the shipped analyses alone. Their imagery is not in
+# the image, so re-analysing them would fail and overwrite a good cache; only
+# the two scenes generated above still need computing.
+RUN python scripts/precompute.py --skip-existing     || echo "WARNING: precompute failed; the container will analyse on demand and may exhaust memory"
 
 # 7860 is the Hugging Face Spaces convention; $PORT overrides it on Render,
 # Railway and Fly, all of which inject their own.

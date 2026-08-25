@@ -37,6 +37,11 @@ def main() -> int:
     ap.add_argument("--config", default=None,
                     help="override the config; defaults to each scene's own")
     ap.add_argument("--out-dir", default=f"data/{CACHE_DIRNAME}")
+    ap.add_argument("--skip-existing", action="store_true",
+                    help="leave scenes that already have a cached result alone. "
+                         "The container image ships analyses for scenes whose "
+                         "imagery it does not carry, so re-analysing them there "
+                         "would fail and destroy a good cache entry.")
     args = ap.parse_args()
 
     from core.config import load_config
@@ -77,9 +82,12 @@ def main() -> int:
         print(f"WARNING: incident registry unavailable ({exc}); "
               f"detections will not be corroborated")
 
-    ok, failed = 0, 0
+    ok, failed, skipped = 0, 0, 0
     for data in manifests:
         scene_id = data["scene_id"]
+        if args.skip_existing and (out_dir / f"{scene_id}.pkl").exists():
+            skipped += 1
+            continue
         config = load_config(args.config or data.get("config") or None)
         if registry is not None:
             setattr(config, "_incident_registry", registry)
@@ -132,9 +140,14 @@ def main() -> int:
         ok += 1
 
     total_kb = sum(p.stat().st_size for p in out_dir.glob("*.pkl")) / 1024
-    print(f"\nPrecomputed {ok} scene(s), {failed} failed, {total_kb:.0f} KB total")
+    cached = len(list(out_dir.glob("*.pkl")))
+    print("")
+    print(f"Precomputed {ok} scene(s), {skipped} already cached, {failed} failed")
+    print(f"{cached} scene(s) in cache, {total_kb:.0f} KB total")
     print(f"-> {out_dir}")
-    return 0 if ok else 1
+    # A run that only skipped still leaves a usable cache, so a build
+    # that re-analyses nothing is still a success.
+    return 0 if cached else 1
 
 
 if __name__ == "__main__":

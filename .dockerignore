@@ -8,20 +8,17 @@ __pycache__/
 **/__pycache__/
 *.pyc
 
-# Data is generated at build time or mounted at run time, never baked from
-# the working tree - a developer's local scratch must not end up in an image.
+# Imagery never enters the image. The API serves a PRECOMPUTED analysis and
+# never opens a raster to do it (see api/store.py), so the container needs the
+# scene manifests and the cached results - about 600 KB - rather than the
+# ~100 MB of GeoTIFFs they were derived from.
 data/
-# ...but the build writes its analyses here and the container must
-# ship them; excluding these puts us back to analysing per request.
-!data/precomputed/
-!data/precomputed/**
-# Real Sentinel-1 scenes (~100 MB). Without these the deployed map shows
-# only the synthetic demo, while the local one shows detections across
-# five ocean basins.
-!data/live/
-!data/live/**
-!data/demo_finale/
-!data/demo_finale/**
+!data/precomputed/*.pkl
+!data/live/*.json
+!data/demo_finale/*.json
+# data/dev/ stays out on purpose: those manifests have no cached analysis, so
+# shipping them would list scenes the container cannot serve.
+
 runs/
 models/*.pt
 models/*.pth
