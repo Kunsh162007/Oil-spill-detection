@@ -113,8 +113,19 @@ class TestSceneEndpoint:
 class TestDetailAndBacktrace:
     @pytest.fixture(scope="class")
     def candidate_id(self, client):
-        """Any detection - used for tests that do not need AIS."""
-        return client.get("/api/slicks").json()["features"][0]["properties"]["candidate_id"]
+        """A detection that HAS a drift origin - used for backtrace tests.
+
+        Not simply the first feature. A slick matched to a documented fixed
+        source (a seep, a wreck, a leaking wellhead) is routed away from vessel
+        attribution and never gets a backward drift run, so /backtrace answers
+        409 for it. That is correct behaviour, and picking blindly made these
+        tests depend on which scene happened to sort first.
+        """
+        for feature in client.get("/api/slicks").json()["features"]:
+            cid = feature["properties"]["candidate_id"]
+            if client.get(f"/api/slicks/{cid}/backtrace").status_code == 200:
+                return cid
+        pytest.skip("no detection in this checkout has a drift origin")
 
     @pytest.fixture(scope="class")
     def attributed_id(self, client):

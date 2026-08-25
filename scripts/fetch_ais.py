@@ -2,11 +2,18 @@
 
     python scripts/fetch_ais.py --config configs/fetch_elsa3.yaml
 
-Two sources:
+Three sources:
+  * noaa    - NOAA Marine Cadastre, open HTTP, no account. US waters, 2015
+              onward, ~330 MB/day. The only free source here that publishes
+              real POSITION reports, which is what the scoring needs.
+              https://coast.noaa.gov/htdata/CMSP/AISDataHandler/
   * danish  - Danish Maritime Authority, open HTTP, no auth. ~2 GB/day, so
               it is filtered to the bbox on the fly rather than kept whole.
+              (Host web.ais.dk was unreachable as of Aug 2026.)
   * gfw     - Global Fishing Watch, free non-commercial token, covers Indian
-              waters, lags about 72 h.
+              waters, lags about 72 h. Identity and EVENTS only - it does not
+              serve position tracks, so it cannot drive parity, proximity or
+              temporality. Use it for AIS-gap dark-vessel signals.
 
 Exits non-zero on an empty result. These feeds return nothing rather than an
 error when a bbox is slightly wrong, and "no ships were there" is a very
@@ -20,6 +27,7 @@ import csv
 import io
 import os
 import sys
+import tempfile
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -87,6 +95,102 @@ def fetch_danish(day: datetime, bbox, out_path: Path, max_rows: int = 4_000_000)
     return kept
 
 
+NOAA_URL = "https://coast.noaa.gov/htdata/CMSP/AISDataHandler/{year}/AIS_{date}.zip"
+
+# Marine Cadastre column names, checked rather than assumed: a renamed column
+# would yield an empty file, which reads as "no ships were there".
+NOAA_REQUIRED = ("MMSI", "BaseDateTime", "LAT", "LON")
+
+
+def fetch_noaa(days, bbox, start: datetime, end: datetime, out_path: Path) -> int:
+    """Stream NOAA Marine Cadastre days, keeping rows inside bbox and window.
+
+    A national day is 300-360 MB zipped and several GB unpacked, so nothing is
+    unpacked and nothing is held in memory: the archive goes to a temporary
+    file, the CSV member is read line by line straight out of it, and the
+    archive is deleted. What lands on disk is a few hundred KB for one scene.
+
+    Rows are written through with their original column names - load_ais_csv
+    already understands MMSI / BaseDateTime / LAT / LON.
+    """
+    import requests
+
+    min_lon, min_lat, max_lon, max_lat = bbox
+    kept = 0
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with out_path.open("w", newline="", encoding="utf-8") as out:
+        writer = None
+        for day in days:
+            url = NOAA_URL.format(year=day.strftime("%Y"), date=day.strftime("%Y_%m_%d"))
+            print(f"Streaming {url}", flush=True)
+            # Deliberately not a `with` block: Windows refuses to unlink a file
+            # that still has an open handle, and zipfile reopens it by path.
+            tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+            tmp_path = Path(tmp.name)
+            try:
+                with requests.get(url, stream=True, timeout=600) as resp:
+                    if resp.status_code == 404:
+                        print(f"  not published for {day:%Y-%m-%d}", file=sys.stderr)
+                        continue
+                    resp.raise_for_status()
+                    downloaded = 0
+                    for chunk in resp.iter_content(chunk_size=1 << 20):
+                        tmp.write(chunk)
+                        downloaded += len(chunk)
+                tmp.close()
+                print(f"  {downloaded/1e6:.0f} MB, scanning without unpacking", flush=True)
+                kept, writer = _scan_noaa_zip(
+                    tmp_path, url, bbox, start, end, out, writer, kept)
+            finally:
+                try:
+                    tmp.close()
+                except OSError:
+                    pass
+                tmp_path.unlink(missing_ok=True)
+            print(f"  kept {kept:,} row(s) so far", flush=True)
+    return kept
+
+
+def _scan_noaa_zip(zip_path: Path, url: str, bbox, start: datetime, end: datetime,
+                   out, writer, kept: int):
+    """Filter one archive's CSV member into `out`. Returns (kept, writer)."""
+    min_lon, min_lat, max_lon, max_lat = bbox
+    with zipfile.ZipFile(zip_path) as zf:
+        members = [n for n in zf.namelist() if n.lower().endswith(".csv")]
+        if not members:
+            raise ValueError(f"no CSV inside {url}")
+        with zf.open(members[0]) as raw:
+            reader = csv.DictReader(
+                io.TextIOWrapper(raw, encoding="utf-8", errors="replace"))
+            missing = [c for c in NOAA_REQUIRED if c not in (reader.fieldnames or [])]
+            if missing:
+                raise ValueError(
+                    f"{members[0]} is missing {missing}; columns are "
+                    f"{reader.fieldnames}. The Marine Cadastre schema changed - "
+                    f"update NOAA_REQUIRED.")
+            for row in reader:
+                try:
+                    lon = float(row["LON"])
+                    lat = float(row["LAT"])
+                except (TypeError, ValueError):
+                    continue
+                if not (min_lon <= lon <= max_lon and min_lat <= lat <= max_lat):
+                    continue
+                try:
+                    when = datetime.fromisoformat(row["BaseDateTime"])
+                except (TypeError, ValueError):
+                    continue
+                if not (start <= when <= end):
+                    continue
+                if writer is None:
+                    writer = csv.DictWriter(out, fieldnames=reader.fieldnames)
+                    writer.writeheader()
+                writer.writerow(row)
+                kept += 1
+    return kept, writer
+
+
 def fetch_gfw(bbox, start: datetime, end: datetime, out_path: Path) -> int:
     from attribute.ais import GFWClient
 
@@ -109,7 +213,7 @@ def fetch_gfw(bbox, start: datetime, end: datetime, out_path: Path) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", required=True)
-    ap.add_argument("--source", choices=["danish", "gfw"], default=None)
+    ap.add_argument("--source", choices=["noaa", "danish", "gfw"], default=None)
     args = ap.parse_args()
 
     from dotenv import load_dotenv
@@ -123,7 +227,20 @@ def main() -> int:
     source = args.source or str(fetch.get("ais_source", "danish"))
     out_path = resolve_path(fetch.get("ais_path", f"data/dev/ais_{centre:%Y%m%d}.csv"))
 
-    if source == "danish":
+    if source == "noaa":
+        # The attribution window: CLAUDE.md asks for 8 h before the pass to 6 h
+        # after, which usually straddles midnight and so spans two daily files.
+        window_start = centre - timedelta(hours=float(fetch.get("ais_hours_before", 8)))
+        window_end = centre + timedelta(hours=float(fetch.get("ais_hours_after", 6)))
+        days, cursor = [], window_start.date()
+        while cursor <= window_end.date():
+            days.append(datetime(cursor.year, cursor.month, cursor.day))
+            cursor = cursor.fromordinal(cursor.toordinal() + 1)
+        print(f"NOAA Marine Cadastre  window {window_start} to {window_end} UTC "
+              f"({len(days)} daily file(s))")
+        kept = fetch_noaa(days, bbox, window_start.replace(tzinfo=None),
+                          window_end.replace(tzinfo=None), out_path)
+    elif source == "danish":
         # The Danish feed covers Danish waters; it is the development source,
         # not the demo source. Warn rather than silently return nothing.
         if not (3.0 <= bbox[0] <= 16.0 and 53.0 <= bbox[1] <= 60.0):

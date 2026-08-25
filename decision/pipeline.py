@@ -268,6 +268,38 @@ def _attribute_one(
                 "about this time."
             ),
         }
+    # CLAUDE.md rule 4: exclude fixed sources BEFORE vessel attribution.
+    #
+    # morphology only recognises a known source inside a fixed radius, and a
+    # plume from a continuously-leaking wellhead streams well past it - the
+    # Taylor Energy MC-20 slicks sat 19-32 km out against a 15 km radius, so
+    # every one was routed to vessel attribution and had ships ranked against
+    # it. The registry had already identified the source correctly; that answer
+    # simply was not consulted. An independent documented match to a fixed
+    # source outranks a geometric radius test.
+    source_type = morph.source_type
+    fixed_match = next(
+        (m for m in (extra.get("corroboration", {}).get("matches") or [])
+         if (m.get("incident") or {}).get("is_fixed_source")),
+        None,
+    )
+    if fixed_match is not None and source_type in ("vessel", "unknown"):
+        incident = fixed_match["incident"]
+        source_type = incident.get("fixed_source_kind") or "infrastructure"
+        extra["fixed_source_override"] = {
+            "name": incident.get("name"),
+            "kind": source_type,
+            "distance_km": fixed_match.get("distance_km"),
+            "reason": (
+                f"Routed to {source_type} rather than vessel attribution: this "
+                f"location matches the documented fixed source "
+                f"'{incident.get('name')}' "
+                f"{fixed_match.get('distance_km')} km away. Naming a passing "
+                f"ship for a known persistent release is the worst error this "
+                f"system can make."
+            ),
+        }
+
     if morph.matched_source is not None:
         extra["matched_source"] = {
             "name": morph.matched_source.name,
@@ -289,13 +321,13 @@ def _attribute_one(
         morphology=cand.morphology,
         rejected_reason=cand.rejected_reason,
         corroboration=extra.get("corroboration"),
-        source_type=morph.source_type,
+        source_type=source_type,
     )
     extra["confidence"] = assessment.to_dict()
 
     # Rejected look-alikes and fixed sources never reach vessel attribution.
-    if cand.is_rejected or morph.source_type in ("natural_seep", "infrastructure"):
-        return decide(cand, None, morph.source_type, [], dcfg, extra)
+    if cand.is_rejected or source_type in ("natural_seep", "infrastructure"):
+        return decide(cand, None, source_type, [], dcfg, extra)
 
     backtrack_hours = float(config.get("drift.backtrack_hours", 12.0))
     try:
@@ -323,12 +355,12 @@ def _attribute_one(
         # Never substitute a plausible origin for a failed run (rule 6).
         log.error("Drift failed for %s: %s", cand.candidate_id, exc)
         warnings.append(f"drift failed for {cand.candidate_id}: {exc}")
-        return decide(cand, None, morph.source_type, [], dcfg, extra)
+        return decide(cand, None, source_type, [], dcfg, extra)
 
     release_time = origin.estimated_at
     if ais_tracks is None:
         extra["ais"] = "no AIS source configured"
-        return decide(cand, origin, morph.source_type, [], dcfg, extra)
+        return decide(cand, origin, source_type, [], dcfg, extra)
 
     try:
         tracks = (
@@ -337,7 +369,7 @@ def _attribute_one(
     except Exception as exc:
         log.error("AIS lookup failed for %s: %s", cand.candidate_id, exc)
         warnings.append(f"AIS lookup failed for {cand.candidate_id}: {exc}")
-        return decide(cand, origin, morph.source_type, [], dcfg, extra)
+        return decide(cand, origin, source_type, [], dcfg, extra)
 
     ctx = ScoringContext(
         origin=origin,
@@ -377,4 +409,4 @@ def _attribute_one(
         "note": "free AIS lags ~72 h; this is near-real-time attribution, not live",
     }
 
-    return decide(cand, origin, morph.source_type, vessels, dcfg, extra)
+    return decide(cand, origin, source_type, vessels, dcfg, extra)

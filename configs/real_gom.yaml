@@ -33,10 +33,11 @@ detect:
   classical_sensitivity: 2.4
 
 wind:
-  source: constant
-  speed_ms: 5.2              # Gulf of Mexico spring/summer mean at 10 m
-  direction_deg: 135.0
-  label: climatology-GoM
+  # Real ERA5 via the Open-Meteo archive, same as the other real scenes. A
+  # constant here would put every Gulf candidate at the same fabricated wind,
+  # which is exactly what made the earlier numbers meaningless.
+  source: open-meteo
+  cache_dir: data/wind/openmeteo
 
 lookalike:
   p_oil_threshold: 0.5

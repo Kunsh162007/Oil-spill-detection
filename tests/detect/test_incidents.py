@@ -187,3 +187,51 @@ class TestDriftScaledRadius:
         assert matches, "a detection 15 days later and 87 km away must match"
         assert "ELSA 3" in matches[0].incident.name
         assert 0.0 < matches[0].confidence <= 1.0
+
+
+class TestFixedSourceFlags:
+    """CLAUDE.md rule 4 depends on these surviving serialisation.
+
+    A documented persistent wellhead reached the pipeline looking like any
+    other incident, because to_dict dropped extras. Vessels were then ranked
+    for oil from a known continuous leak - the worst error the system can make.
+    """
+
+    def test_a_persistent_incident_is_a_fixed_source(self):
+        from detect.incidents import SpillIncident
+
+        incident = SpillIncident(
+            incident_id="x", name="Taylor Energy MC-20", lon=-88.97, lat=28.936,
+            occurred_at=None, commodity="crude oil", source="test",
+            extras={"persistent": True, "natural_seep": False},
+        )
+
+        assert incident.is_fixed_source
+        assert incident.fixed_source_kind == "infrastructure"
+        assert incident.to_dict()["is_fixed_source"] is True
+        assert incident.to_dict()["fixed_source_kind"] == "infrastructure"
+
+    def test_a_natural_seep_reports_as_a_seep_not_infrastructure(self):
+        from detect.incidents import SpillIncident
+
+        incident = SpillIncident(
+            incident_id="y", name="Coal Oil Point", lon=-119.883, lat=34.391,
+            occurred_at=None, commodity="crude oil", source="test",
+            extras={"persistent": True, "natural_seep": True},
+        )
+
+        assert incident.fixed_source_kind == "natural_seep"
+
+    def test_an_ordinary_incident_is_not_a_fixed_source(self):
+        """A tanker spill must stay attributable to a vessel."""
+        from detect.incidents import SpillIncident
+
+        incident = SpillIncident(
+            incident_id="z", name="Some tanker spill", lon=0.0, lat=0.0,
+            occurred_at=None, commodity="fuel oil", source="test",
+            extras={"persistent": False, "natural_seep": False},
+        )
+
+        assert not incident.is_fixed_source
+        assert incident.fixed_source_kind is None
+        assert incident.to_dict()["is_fixed_source"] is False

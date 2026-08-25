@@ -1,0 +1,17 @@
+# Taylor Energy MC-20, Gulf of Mexico - the fully-real demo.
+#
+# Every input here is real and openly downloadable with no account:
+#   imagery  Sentinel-1 GRD via the AWS Open Data mirror
+#   wind     ERA5 reanalysis via the Open-Meteo archive
+#   AIS      NOAA Marine Cadastre position reports
+#   incident the MC-20 site is in the documented-incident registry
+#
+# MC-20 has leaked continuously since 2004, so a slick is present on
+# essentially every pass - which is why CLAUDE.md names it demo insurance.
+fetch:
+  bbox: [-89.35, 28.70, -88.60, 29.20]     # min_lon, min_lat, max_lon, max_lat
+  date: "2023-06-20T00:02:09"              # Sentinel-1 acquisition, UTC
+  ais_source: noaa
+  ais_hours_before: 8                      # CLAUDE.md attribution window
+  ais_hours_after: 6
+  ais_path: data/demo_finale/mc20_ais.csv

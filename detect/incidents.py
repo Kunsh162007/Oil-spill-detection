@@ -122,6 +122,24 @@ class SpillIncident:
         return any(good in text for good in OIL_KEYWORDS)
 
     @property
+    def is_fixed_source(self) -> bool:
+        """A source that sits still: a seep, a wreck, a platform, a wellhead.
+
+        CLAUDE.md rule 4 turns on this distinction - accusing a ship of a
+        natural seep is the worst failure this system can produce - so it has
+        to survive serialisation and reach the code that picks a source type.
+        """
+        return bool(self.extras.get("persistent") or self.extras.get("natural_seep"))
+
+    @property
+    def fixed_source_kind(self) -> str | None:
+        if self.extras.get("natural_seep"):
+            return "natural_seep"
+        if self.extras.get("persistent"):
+            return "infrastructure"
+        return None
+
+    @property
     def volume_m3(self) -> float | None:
         if self.max_release_gallons is None or not math.isfinite(self.max_release_gallons):
             return None
@@ -142,6 +160,11 @@ class SpillIncident:
             "threat": self.threat,
             "url": self.url,
             "is_petroleum": self.is_petroleum,
+            # Carried explicitly. extras was dropped here, so a match against a
+            # documented persistent wellhead reached the pipeline looking like
+            # any other incident and vessels were ranked for it.
+            "is_fixed_source": self.is_fixed_source,
+            "fixed_source_kind": self.fixed_source_kind,
         }
 
 

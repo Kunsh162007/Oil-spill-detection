@@ -1,0 +1,19 @@
+{
+  "scene_id": "S1A_IW_GRDH_1SDV_20230620T000209_20230620T000234_049062_05E65E_5ADB",
+  "label": null,
+  "acquired_at": "2023-06-20T00:02:09.975431+00:00",
+  "bbox": [
+    -89.325758,
+    28.583978,
+    -88.624143,
+    29.315945
+  ],
+  "vv_path": "data\\demo_finale\\S1A_IW_GRDH_1SDV_20230620T000209_20230620T000234_049062_05E65E_5ADB_vv.tif",
+  "vh_path": "data\\demo_finale\\S1A_IW_GRDH_1SDV_20230620T000209_20230620T000234_049062_05E65E_5ADB_vh.tif",
+  "orbit_direction": "UNKNOWN",
+  "config": "configs/real_gom.yaml",
+  "REAL_IMAGERY": true,
+  "source": "AWS Open Data sentinel-s1-l1c (public, no credentials)",
+  "age_hours_at_fetch": 24.0,
+  "ais_path": "data/demo_finale/mc20_ais.csv"
+}
