@@ -33,3 +33,9 @@ matplotlib>=3.8
 pytest>=8.0
 pytest-cov>=4.1
 httpx>=0.27
+
+# Ocean currents for the drift stage. Development-only: the API
+# container never reads currents - drift runs at precompute time and
+# only its result is served, so this stays out of requirements-api.txt.
+copernicusmarine>=2.0        # CMEMS subsetting; needs `copernicusmarine login`
+xarray>=2024.0               # reads the CMEMS/ERA5 NetCDF fields
