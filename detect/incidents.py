@@ -34,11 +34,46 @@ from core.geo import haversine_km
 log = logging.getLogger(__name__)
 
 # How close in space and time a detection must be to a documented incident
-# before we call it corroborated. Generous on time because a slick persists
-# and drifts for days after the reported start of an incident.
-CORROBORATION_KM = 60.0
+# before we call it corroborated.
+#
+# The search radius CANNOT be a constant. Oil moves. A slick found the same day
+# as an incident should be right on top of it, but one found a fortnight later
+# has been carried by wind and current the whole time, and demanding it still
+# be within 60 km asks it to have stayed put - which is the one thing oil never
+# does. MSC ELSA 3 is exactly this case: real detections 15 days after the
+# sinking sat 87 km away and were scored as uncorroborated, because the
+# threshold assumed a stationary slick.
+#
+# So the radius grows with elapsed time at a conservative surface-drift rate.
+# Wind-driven leeway alone is about 3% of wind speed - at 6 m/s that is
+# 0.18 m/s, ~15 km/day - and currents add to it. 20 km/day sits below the
+# 0.3 m/s (26 km/day) the ELSA3 validation quotes, so it errs toward matching
+# too little rather than too much.
+CORROBORATION_BASE_KM = 30.0        # registry position error + slick extent
+CORROBORATION_DRIFT_KM_PER_DAY = 20.0
+CORROBORATION_MAX_KM = 250.0        # past this, "nearby" means nothing
+CORROBORATION_KM = CORROBORATION_BASE_KM   # back-compat for callers
+
 CORROBORATION_DAYS_BEFORE = 2.0
 CORROBORATION_DAYS_AFTER = 14.0
+
+# A persistent source keeps replenishing, so its slick's head sits on the
+# source while the tail streams away. There is no single elapsed time to scale
+# by, so it gets a fixed allowance of a few days' drift rather than the full cap.
+CORROBORATION_PERSISTENT_KM = 100.0
+
+
+def corroboration_radius_km(days_after: float | None,
+                            base_km: float = CORROBORATION_BASE_KM) -> float:
+    """How far a slick could plausibly have drifted since an incident.
+
+    days_after is None (unknown date) or negative (detection precedes the
+    incident) -> the base radius, since there is no elapsed time to allow for.
+    """
+    if days_after is None or days_after <= 0.0:
+        return base_km
+    return min(base_km + CORROBORATION_DRIFT_KM_PER_DAY * days_after,
+               CORROBORATION_MAX_KM)
 
 # Commodity strings that indicate petroleum. The registries are free text, so
 # this is a keyword filter rather than a controlled vocabulary.
@@ -199,11 +234,21 @@ def load_noaa_incidents(
 # registry's US-centred coverage. Every entry is public record; positions are
 # the published incident locations. This exists so the world map is genuinely
 # worldwide rather than a map of American waters.
+# duration_days: how long the source kept releasing. Present only where the
+# figure is a canonical, widely-cited fact. Absent means "treated as a single
+# event", which is the conservative reading - it narrows the corroboration
+# window rather than widening it, so a missing duration can never manufacture
+# a match. Do not guess these.
 WORLD_INCIDENTS: list[dict[str, Any]] = [
     # --- Indian waters: our actual target region ---
     dict(id="msc-elsa-3", name="MSC ELSA 3 sinking", lon=76.136, lat=9.3125,
          date="2025-05-25", commodity="furnace oil and diesel",
          location="Off Kochi, Kerala, India",
+         # The wreck kept releasing for weeks, so it is a source over that whole
+         # span rather than a single event on 25 May. Without this a detection
+         # in the middle of the episode is scored as though the oil were three
+         # weeks stale.
+         duration_days=30,
          note="Container ship sank; wreck leaked for weeks. Our validation case."),
     dict(id="wakashio", name="MV Wakashio grounding", lon=57.665, lat=-20.435,
          date="2020-07-25", commodity="very low sulphur fuel oil",
@@ -238,7 +283,9 @@ WORLD_INCIDENTS: list[dict[str, Any]] = [
     dict(id="deepwater-horizon", name="Deepwater Horizon", lon=-88.366, lat=28.738,
          date="2010-04-20", commodity="crude oil",
          location="Gulf of Mexico, USA",
-         note="~4.9 million barrels; the largest marine oil spill on record."),
+         note="~4.9 million barrels; the largest marine oil spill on record.",
+         # wellhead flowed 20 Apr - 15 Jul 2010
+         duration_days=87),
     dict(id="prestige", name="Prestige tanker sinking", lon=-9.500, lat=42.200,
          date="2002-11-13", commodity="heavy fuel oil",
          location="Off Galicia, Spain"),
@@ -263,7 +310,9 @@ WORLD_INCIDENTS: list[dict[str, Any]] = [
          location="Bohai Bay, China"),
     dict(id="montara", name="Montara wellhead blowout", lon=124.533, lat=-12.683,
          date="2009-08-21", commodity="crude oil and condensate",
-         location="Timor Sea, Australia"),
+         location="Timor Sea, Australia",
+         # wellhead flowed 21 Aug - 3 Nov 2009
+         duration_days=74),
     dict(id="agia-zoni", name="Agia Zoni II sinking", lon=23.583, lat=37.933,
          date="2017-09-10", commodity="fuel oil",
          location="Saronic Gulf, Greece"),
@@ -370,6 +419,11 @@ def load_world_incidents() -> list[SpillIncident]:
             extras={
                 "persistent": bool(entry.get("persistent", False)),
                 "natural_seep": bool(entry.get("natural", False)),
+                # How long the source kept releasing. Zero means a single
+                # event; a wreck that leaks for weeks is a source for weeks,
+                # and the corroboration window has to reflect that or the
+                # middle of the episode scores as stale oil.
+                "duration_days": float(entry.get("duration_days", 0.0) or 0.0),
             },
         ))
     return out
@@ -423,7 +477,7 @@ class IncidentRegistry:
         lon: float,
         lat: float,
         when: datetime | None = None,
-        radius_km: float = CORROBORATION_KM,
+        base_radius_km: float = CORROBORATION_BASE_KM,
     ) -> list[Corroboration]:
         """Documented incidents that could explain a detection here and then.
 
@@ -432,39 +486,59 @@ class IncidentRegistry:
         matches: list[Corroboration] = []
         for incident in self._nearby(lon, lat):
             distance = haversine_km((lon, lat), (incident.lon, incident.lat))
-            if distance > radius_km:
-                continue
-
             persistent = bool(incident.extras.get("persistent"))
             days_apart: float | None = None
+
+            # An incident that keeps releasing is a source for as long as it
+            # does so. A wreck leaking for weeks is not "one event on day zero"
+            # followed by silence, and scoring it that way rejects the middle of
+            # the very episode being validated.
+            duration_days = float(incident.extras.get("duration_days", 0.0) or 0.0)
 
             if when is not None and incident.occurred_at is not None and not persistent:
                 delta_days = (when - incident.occurred_at).total_seconds() / 86400.0
                 days_apart = delta_days
                 # A detection BEFORE the incident cannot be that incident;
-                # long after, the slick has dispersed.
+                # long after the source stops, the slick has dispersed.
                 if delta_days < -CORROBORATION_DAYS_BEFORE:
                     continue
-                if delta_days > CORROBORATION_DAYS_AFTER:
+                if delta_days > CORROBORATION_DAYS_AFTER + duration_days:
                     continue
-                time_term = math.exp(-max(delta_days, 0.0) / 7.0)
+
+                # Age is measured from when the source stopped releasing, not
+                # from when it started: oil put in the water on day 14 of a leak
+                # is fresh on day 14.
+                age_days = max(delta_days - duration_days, 0.0)
+                # Drift is allowed for from the START, because the earliest oil
+                # has been moving the whole time.
+                radius_km = corroboration_radius_km(delta_days, base_radius_km)
+                time_term = math.exp(-age_days / 7.0)
                 reason = (
                     f"{distance:.0f} km from the documented '{incident.name}' "
                     f"({incident.occurred_at:%d %b %Y}), {abs(delta_days):.1f} days "
                     f"{'after' if delta_days >= 0 else 'before'}"
+                    + (f"; source released for ~{duration_days:.0f} days"
+                       if duration_days else "")
+                    + (f"; within {radius_km:.0f} km of plausible drift"
+                       if delta_days > 0 else "")
                 )
             elif persistent:
+                radius_km = max(base_radius_km, CORROBORATION_PERSISTENT_KM)
                 time_term = 1.0
                 reason = (
                     f"{distance:.0f} km from '{incident.name}', a known persistent "
                     f"source that appears on nearly every pass"
                 )
             else:
+                radius_km = base_radius_km
                 time_term = 0.4
                 reason = (
                     f"{distance:.0f} km from the documented '{incident.name}' "
                     f"(no usable date to compare)"
                 )
+
+            if distance > radius_km:
+                continue
 
             distance_term = max(0.0, 1.0 - distance / max(radius_km, 1e-6))
             matches.append(Corroboration(

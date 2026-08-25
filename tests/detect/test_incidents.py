@@ -140,3 +140,50 @@ class TestRealRegistry:
         registry = load_registry(NOAA_CSV)
         matches = registry.find(-88.366, 28.738, datetime(2010, 4, 25, tzinfo=timezone.utc))
         assert matches, "the largest marine spill on record should corroborate"
+
+
+class TestDriftScaledRadius:
+    """Corroboration distance has to grow with elapsed time.
+
+    Oil moves. Demanding that a slick found a fortnight after an incident still
+    sit within a fixed 60 km asks it to have stayed put, which is the one thing
+    oil never does - and it is why real MSC ELSA 3 detections 15 days later, 87
+    km away, were scored as uncorroborated.
+    """
+
+    def test_radius_grows_with_elapsed_days(self):
+        from detect.incidents import (CORROBORATION_BASE_KM,
+                                      CORROBORATION_MAX_KM,
+                                      corroboration_radius_km)
+
+        same_day = corroboration_radius_km(0.0)
+        a_week = corroboration_radius_km(7.0)
+        a_fortnight = corroboration_radius_km(14.0)
+
+        assert same_day == CORROBORATION_BASE_KM
+        assert a_week > same_day
+        assert a_fortnight > a_week
+        assert corroboration_radius_km(400.0) == CORROBORATION_MAX_KM
+
+    def test_unknown_or_negative_elapsed_time_uses_the_base(self):
+        """No elapsed time means no drift allowance - never a wider net."""
+        from detect.incidents import (CORROBORATION_BASE_KM,
+                                      corroboration_radius_km)
+
+        assert corroboration_radius_km(None) == CORROBORATION_BASE_KM
+        assert corroboration_radius_km(-3.0) == CORROBORATION_BASE_KM
+
+    def test_a_leaking_wreck_still_corroborates_mid_episode(self):
+        """MSC ELSA 3: the regression this whole change exists to fix."""
+        from datetime import datetime, timezone
+
+        from detect.incidents import load_registry
+
+        registry = load_registry(None)          # curated catalogue only
+        when = datetime(2025, 6, 9, 0, 41, tzinfo=timezone.utc)
+
+        matches = registry.find(75.95, 8.55, when)          # ~87 km south
+
+        assert matches, "a detection 15 days later and 87 km away must match"
+        assert "ELSA 3" in matches[0].incident.name
+        assert 0.0 < matches[0].confidence <= 1.0

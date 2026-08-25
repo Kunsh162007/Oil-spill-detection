@@ -18,7 +18,18 @@ def real_slick(**overrides):
 
 CORROBORATION = {
     "confirmed": True,
-    "matches": [{"reason": "3 km from the documented 'MSC ELSA 3 sinking'"}],
+    # A real match always carries a confidence; the tier logic reads it, so a
+    # fixture without one tests a shape that never occurs.
+    "matches": [{"reason": "3 km from the documented 'MSC ELSA 3 sinking'",
+                 "confidence": 0.92}],
+}
+
+# Same incident, but matched at the far edge of the drift-scaled radius - the
+# kind of match that only became possible once the radius grew with time.
+DISTANT_CORROBORATION = {
+    "confirmed": True,
+    "matches": [{"reason": "210 km from the documented 'MSC ELSA 3 sinking'",
+                 "confidence": 0.11}],
 }
 
 
@@ -27,6 +38,35 @@ class TestTiers:
         a = assess(**real_slick(), corroboration=CORROBORATION)
         assert a.tier == "confirmed"
         assert a.corroborated and a.is_actual_oil
+
+    def test_distant_registry_match_does_not_confirm(self):
+        """A weak match helps the score but must not upgrade the verdict.
+
+        The corroboration radius grows with drift time, so a match can now sit
+        200 km away after a fortnight. That is real evidence and worth points,
+        but calling it "confirmed" would let distance-scaled coincidences
+        masquerade as independent confirmation.
+        """
+        near = assess(**real_slick(), corroboration=CORROBORATION)
+        far = assess(**real_slick(), corroboration=DISTANT_CORROBORATION)
+
+        assert near.tier == "confirmed"
+        assert far.tier != "confirmed"
+        assert far.corroborated, "it is still corroborated, just not strongly"
+
+    def test_a_weaker_registry_match_is_worth_fewer_points(self):
+        """The bonus scales with match quality rather than being flat.
+
+        Measured on a middling candidate: a strong slick saturates the score
+        cap, which would hide the difference.
+        """
+        middling = dict(p_oil=0.60, wind_window_score=0.8, damping_ratio=0.55,
+                        elongation=6.0, area_km2=2.0, morphology="linear")
+
+        near = assess(**middling, corroboration=CORROBORATION)
+        far = assess(**middling, corroboration=DISTANT_CORROBORATION)
+
+        assert far.score < near.score
 
     def test_strong_physics_alone_is_probable(self):
         a = assess(**real_slick())

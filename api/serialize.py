@@ -289,9 +289,11 @@ def refresh_ages(payload: dict[str, Any]) -> dict[str, Any]:
     detection is current oil. Acquisition time is immutable and already in every
     feature, so the age fields are recomputed on the way out.
 
-    Mutates nothing the caller owns: the cached object is reused across
-    requests, so the flags are rewritten in place on a structure that is
-    otherwise identical each time.
+    Rewrites the flags in place, which is safe because the caller parses the
+    cache file fresh on every request rather than sharing one dict. That costs
+    a small JSON parse each time and buys freedom from a data race: sync
+    endpoints run in a threadpool, so a shared payload mutated per request
+    would be rewritten by several threads at once.
     """
     from datetime import datetime
 

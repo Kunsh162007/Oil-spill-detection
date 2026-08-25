@@ -76,6 +76,15 @@ class ConfidenceAssessment:
 STRONG_P_OIL = 0.75
 MIN_P_OIL = 0.50
 STRONG_DAMPING_DB = 5.0
+# Independent confirmation is worth a lot - it comes from outside the model
+# entirely - but it is capped so it can never carry a candidate on its own, and
+# it is scaled by how good the match is. The corroboration radius grows with
+# drift time, so a match 200 km out after a fortnight is real evidence but
+# weaker than one sitting on the incident.
+CORROBORATION_BONUS = 0.30
+# Below this, a match still helps the score but may not promote to "confirmed".
+MIN_CORROBORATION_CONFIDENCE = 0.35
+
 MIN_DAMPING_DB = 2.5
 STRONG_WIND_WINDOW = 0.6
 MIN_WIND_WINDOW = 0.25
@@ -160,15 +169,26 @@ def assess(
     # Independent confirmation. Worth a lot, because it comes from outside the
     # model entirely - but it is capped so it can never carry a candidate on
     # its own.
+    match = (corroboration.get("matches") or [{}])[0]
+    match_confidence = float(match.get("confidence", 0.0) or 0.0)
+
     if corroborated:
-        match = (corroboration.get("matches") or [{}])[0]
-        score = min(1.0, score + 0.30)
+        # Scaled by how good the match is, not flat. The corroboration radius
+        # now grows with drift time, so a match can legitimately be 200 km away
+        # after a fortnight - real evidence, but weaker than one sitting on top
+        # of the incident, and it must not score the same.
+        weight = min(1.0, 0.4 + match_confidence)
+        score = min(1.0, score + CORROBORATION_BONUS * weight)
         reasons.append(
             "independently corroborated: " + str(match.get("reason", "documented incident nearby"))
         )
 
+    # Only a strong match may promote to "confirmed"; a distant one still helps
+    # the score but cannot, by itself, upgrade the verdict.
+    strong_corroboration = corroborated and match_confidence >= MIN_CORROBORATION_CONFIDENCE
+
     tier: Tier
-    if corroborated and score >= 0.55:
+    if strong_corroboration and score >= 0.55:
         tier = "confirmed"
     elif score >= 0.62:
         tier = "probable"
