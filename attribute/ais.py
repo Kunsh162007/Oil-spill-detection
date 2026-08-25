@@ -306,11 +306,39 @@ def load_ais_csv(
 
 
 class GFWClient:
-    """Global Fishing Watch API - AIS for Indian waters, ~72 h delayed.
+    """Global Fishing Watch API - vessel identity for Indian waters, ~72 h delayed.
 
     Free non-commercial token. Empty results are raised, not returned: GFW
     answers a slightly-wrong bbox with an empty list rather than an error,
     and a silently empty AIS query looks exactly like "no ships were there".
+
+    IMPORTANT - what this can and cannot do.
+
+    The public GFW API does not serve raw AIS track polylines. It offers vessel
+    IDENTITY search (/vessels/search), discrete positioned EVENTS (/events -
+    fishing, encounters, loitering, port visits, AIS gaps), and gridded vessel
+    PRESENCE (/4wings/report). None of those is a position time series.
+
+    Our scoring needs one. parity compares a vessel's course to the slick's long
+    axis, proximity measures closest approach to the drift origin, and
+    temporality measures when it passed - all three read track positions. A
+    vessel with no positions scores zero on every axis and is disqualified,
+    which is safe (the system abstains rather than inventing a lead) but means
+    a token by itself does not enable attribution.
+
+    The routes that WOULD work, in order of value:
+      * /events with public-global-gaps-events - a vessel going dark near the
+        origin is the strongest signal we have, and dark_vessel.py already
+        consumes exactly this shape.
+      * /events generally - each event carries a lat/lon and a time, so a
+        sequence of them approximates a coarse track: enough for proximity and
+        temporality, not enough for parity.
+      * /4wings/report - which vessels were in which cell when. Coarse
+        proximity only.
+
+    Any of those needs to be written against the live API with a real token, so
+    it is not guessed at here. load_ais_csv remains the path that gives full
+    positions, from any AIS CSV.
     """
 
     BASE_URL = "https://gateway.api.globalfishingwatch.org/v3"
@@ -370,11 +398,22 @@ class GFWClient:
                 name=entry.get("shipname"),
                 vessel_type=entry.get("vesselType"),
                 flag=entry.get("flag"),
-                source="gfw",
+                source="gfw-identity",
                 meta={"raw": entry},
             ))
-        log.info("GFW returned %d vessels for bbox %s", len(tracks), bbox)
-        return tracks
+
+        # Identity carries no positions, and every scoring axis reads
+        # positions. Returning these would hand the ranker a list of vessels
+        # that each score zero and are disqualified - an abstention dressed up
+        # as a query that worked. Say what is missing instead.
+        raise NotImplementedError(
+            f"GFW /vessels/search returned {len(tracks)} vessel identities for "
+            f"bbox {bbox}, but no track positions - this endpoint does not "
+            f"provide them, and parity, proximity and temporality all require "
+            f"them. Attribution would abstain on every one. Use load_ais_csv "
+            f"with a positional AIS feed, or implement the /events path "
+            f"described in this class's docstring."
+        )
 
 
 def danish_ais_url(day: datetime) -> str:
