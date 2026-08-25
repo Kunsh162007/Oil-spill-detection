@@ -77,3 +77,64 @@ class TestGFWLimits:
                 sys.modules["requests"] = saved
             else:
                 del sys.modules["requests"]
+
+    def test_gap_events_map_onto_our_gap_record(self):
+        """The one thing GFW gives that no free positional feed does.
+
+        A gap event carries a single position - where the transponder went
+        quiet - plus a bounding box spanning the silence, so the resume point is
+        the far corner of that box. Shape verified against a real response.
+        """
+        import sys
+        import types
+        from datetime import datetime, timezone
+
+        import attribute.ais as ais_module
+
+        client = ais_module.GFWClient.__new__(ais_module.GFWClient)
+        client.token, client.timeout = "test-token", 5.0
+
+        entry = {
+            "start": "2026-08-16T01:31:04.000Z",
+            "end": "2026-08-18T19:58:36.000Z",
+            "type": "gap",
+            "position": {"lat": 8.36, "lon": 80.93},
+            "boundingBox": [80.5, 8.0, 81.9, 9.4],
+            "vessel": {"ssvid": "636026512", "name": "DARK RUNNER"},
+            "gap": {"intentionalDisabling": True},
+        }
+        outside = dict(entry, position={"lat": -40.0, "lon": 10.0})
+
+        class FakeResponse:
+            @staticmethod
+            def raise_for_status():
+                return None
+
+            @staticmethod
+            def json():
+                return {"entries": [entry, outside], "nextOffset": None}
+
+        fake_requests = types.ModuleType("requests")
+        fake_requests.get = lambda *a, **k: FakeResponse()
+        saved = sys.modules.get("requests")
+        sys.modules["requests"] = fake_requests
+        try:
+            gaps = client.fetch_gap_events(
+                (65.0, 5.0, 90.0, 25.0),
+                datetime(2026, 8, 15, tzinfo=timezone.utc),
+                datetime(2026, 8, 25, tzinfo=timezone.utc),
+            )
+        finally:
+            if saved is not None:
+                sys.modules["requests"] = saved
+            else:
+                del sys.modules["requests"]
+
+        assert len(gaps) == 1, "the out-of-bbox event must be filtered out"
+        gap = gaps[0]
+        assert gap.mmsi == "636026512"
+        assert gap.name == "DARK RUNNER"
+        assert (gap.last_lon, gap.last_lat) == (80.93, 8.36)
+        # Far corner of the silence envelope, not the near one.
+        assert (gap.resume_lon, gap.resume_lat) == (81.9, 9.4)
+        assert gap.duration_hours > 60

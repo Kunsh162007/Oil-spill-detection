@@ -416,6 +416,93 @@ class GFWClient:
         )
 
 
+    GAP_DATASET = "public-global-gaps-events:v4.0"
+
+    def fetch_gap_events(
+        self,
+        bbox: tuple[float, float, float, float],
+        start: datetime,
+        end: datetime,
+        max_events: int = 2000,
+    ) -> list[AISGap]:
+        """AIS switch-offs from GFW, as AISGap records.
+
+        This is the one thing the public API gives us that no free positional
+        feed does: GFW's own assessment of whether a transponder silence looks
+        deliberate. A vessel going dark where a slick starts is the strongest
+        single signal in CLAUDE.md's attribution design.
+
+        Filtering is done here rather than server-side. The events endpoint
+        accepts a GeoJSON geometry, but that query takes minutes; the global
+        gap count is only in the hundreds per week, so fetching the window and
+        selecting locally is both faster and simpler.
+
+        NOTE on positions: a gap event carries ONE position, where the
+        transponder went quiet, plus a boundingBox spanning the silence. The
+        resume position is taken as the far corner of that box. That is an
+        approximation of a real point, so GFW's own distanceKm and
+        impliedSpeedKnots are carried through in preference to the values
+        AISGap would derive from it.
+        """
+        import requests
+
+        min_lon, min_lat, max_lon, max_lat = bbox
+        entries: list[dict[str, Any]] = []
+        offset: int | None = 0
+        while offset is not None and len(entries) < max_events:
+            resp = requests.get(
+                f"{self.BASE_URL}/events",
+                params={
+                    "datasets[0]": self.GAP_DATASET,
+                    "start-date": start.date().isoformat(),
+                    "end-date": end.date().isoformat(),
+                    "limit": 200, "offset": offset,
+                },
+                headers={"Authorization": f"Bearer {self.token}"},
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            entries.extend(payload.get("entries", []))
+            offset = payload.get("nextOffset")
+
+        gaps: list[AISGap] = []
+        for entry in entries:
+            position = entry.get("position") or {}
+            lon, lat = position.get("lon"), position.get("lat")
+            if lon is None or lat is None:
+                continue
+            if not (min_lon <= lon <= max_lon and min_lat <= lat <= max_lat):
+                continue
+
+            started = _parse_timestamp(entry.get("start", ""))
+            ended = _parse_timestamp(entry.get("end", ""))
+            if started is None or ended is None:
+                continue
+
+            box = entry.get("boundingBox") or [lon, lat, lon, lat]
+            # Far corner of the silence envelope, as the resume position.
+            resume_lon = box[2] if abs(box[2] - lon) >= abs(box[0] - lon) else box[0]
+            resume_lat = box[3] if abs(box[3] - lat) >= abs(box[1] - lat) else box[1]
+
+            vessel = entry.get("vessel") or {}
+            mmsi = str(vessel.get("ssvid") or "").strip()
+            if not mmsi:
+                continue
+
+            gaps.append(AISGap(
+                mmsi=mmsi,
+                gap_start=started, gap_end=ended,
+                last_lon=float(lon), last_lat=float(lat),
+                resume_lon=float(resume_lon), resume_lat=float(resume_lat),
+                name=vessel.get("name"),
+            ))
+
+        log.info("GFW: %d gap event(s) inside %s out of %d fetched",
+                 len(gaps), bbox, len(entries))
+        return gaps
+
+
 def danish_ais_url(day: datetime) -> str:
     """URL for one day of Danish Maritime Authority AIS (open, no auth)."""
     return f"http://web.ais.dk/aisdata/aisdk-{day.strftime('%Y-%m-%d')}.zip"
