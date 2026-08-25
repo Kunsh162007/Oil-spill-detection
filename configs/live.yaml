@@ -22,10 +22,13 @@ detect:
   classical_sensitivity: 2.6
 
 wind:
-  source: constant
-  speed_ms: 5.8                   # Arabian Sea, south-west monsoon period
-  direction_deg: 225.0
-  label: climatology-ArabianSea
+  # Real ERA5 reanalysis, fetched per scene time and location. The previous
+  # setting was a single climatological constant of 5.8 m/s, which sits in the
+  # middle of the detection window - so every candidate scored a perfect wind
+  # match and the strongest discriminator in the pipeline contributed nothing.
+  # Open-Meteo republishes ERA5 over an open endpoint, so this needs no account.
+  source: open-meteo
+  cache_dir: data/wind/openmeteo
 
 lookalike:
   p_oil_threshold: 0.5

@@ -93,8 +93,26 @@ def build_features(region: RegionFeatures, wind: WindContext) -> dict[str, float
 class GateConfig:
     """Thresholds for the non-negotiable physical checks."""
 
+    # The two ends of the wind window are NOT symmetric, so they are not
+    # enforced the same way.
+    #
+    # Below the floor, calm water is genuinely indistinguishable from oil: the
+    # sea gives no bright return to be damped, so every dark patch is
+    # unexplainable. That is a hard gate - it produces false POSITIVES.
+    #
+    # Above the ceiling the failure is the opposite: oil mixes into the wave
+    # field and stops being visible, which produces false NEGATIVES. A large,
+    # strongly damped, elongated feature seen anyway at 13 m/s is evidence, not
+    # noise - rejecting it turns a real detection into a miss. So the ceiling is
+    # a graded penalty carried into the score (window_score reaches 0 there,
+    # which the model weighs heavily against), with a hard gate only at the
+    # point where nothing is credible any more.
+    #
+    # CLAUDE.md: "soft edges (oil is occasionally visible outside it) ...
+    # Treat the window as a graded feature, not a hard cutoff."
     min_wind_ms: float = WIND_LOW_CUT_MS
     max_wind_ms: float = WIND_HIGH_CUT_MS
+    absolute_max_wind_ms: float = 15.0
     min_damping_db: float = 1.0     # below this the patch is barely darker than sea
     min_area_km2: float = 0.05
     require_wind: bool = True
@@ -123,11 +141,12 @@ def apply_gates(
             f"calm water is indistinguishable from oil on SAR",
         )
 
-    if wind > gates.max_wind_ms:
+    if wind > gates.absolute_max_wind_ms:
         return (
             "wind_too_high",
-            f"wind {wind:.1f} m/s is above the {gates.max_wind_ms:.1f} m/s ceiling - "
-            f"oil mixes into the wave field and cannot be resolved",
+            f"wind {wind:.1f} m/s is above the {gates.absolute_max_wind_ms:.1f} m/s "
+            f"limit - oil is fully mixed into the wave field and nothing dark "
+            f"here can be attributed to a slick",
         )
 
     if features["damping_db"] < gates.min_damping_db:

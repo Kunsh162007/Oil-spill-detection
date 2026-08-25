@@ -44,11 +44,31 @@ class TestWindGates:
         assert "1.2 m/s" in v.rejected_reason
         assert "calm water" in v.rejected_reason.lower()
 
-    def test_storm_wind_rejects(self, model):
-        v = model.classify(region(), WindContext.from_speed(14.0, 250))
+    def test_extreme_wind_rejects(self, model):
+        """Past the absolute limit nothing dark can be called a slick."""
+        v = model.classify(region(), WindContext.from_speed(17.0, 250))
         assert not v.is_oil
         assert v.gate_hit == "wind_too_high"
         assert "wave field" in v.rejected_reason
+
+    def test_high_wind_is_graded_not_gated(self, model):
+        """Above the window the penalty is scored, not absolute.
+
+        The two ends of the window fail differently. Calm water is genuinely
+        ambiguous - every dark patch is unexplainable - so the floor is a hard
+        gate. High wind instead makes oil INVISIBLE, so a strong feature seen
+        anyway is evidence rather than noise, and gating it would convert a real
+        detection into a miss. CLAUDE.md: "soft edges (oil is occasionally
+        visible outside it) ... a graded feature, not a hard cutoff."
+        """
+        wind = WindContext.from_speed(13.0, 250)
+        assert wind.window_score == 0.0
+
+        v = model.classify(region(), wind)
+
+        assert v.gate_hit is None, "13 m/s must not be gated outright"
+        # It still has to overcome a heavy penalty to be called oil.
+        assert v.p_oil < 0.5
 
     def test_missing_wind_rejects(self, model):
         """A candidate without wind context is not a candidate."""

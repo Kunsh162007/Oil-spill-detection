@@ -2,8 +2,9 @@
 
 Sources, in order of trust:
   1. ERA5 NetCDF via the Copernicus Climate Data Store (cdsapi).
-  2. A measured constant, when only a reported value is available.
-  3. Synthetic, ONLY when explicitly configured - tagged all the way to the UI.
+  2. ERA5 via the Open-Meteo archive - same reanalysis, no account needed.
+  3. A measured constant, when only a reported value is available.
+  4. Synthetic, ONLY when explicitly configured - tagged all the way to the UI.
 
 CLAUDE.md rule 3: no detection without a wind check. There is deliberately no
 silent default, so a missing wind file raises rather than quietly producing a
@@ -69,6 +70,118 @@ class ERA5Wind:
         return WindContext.from_speed(speed, direction, source="ERA5")
 
 
+class OpenMeteoERA5Wind:
+    """ERA5 10 m wind from the Open-Meteo archive. No account, no API key.
+
+    The Copernicus Climate Data Store serves the authoritative ERA5, but it
+    needs a registered account and a ~/.cdsapirc. Open-Meteo republishes the
+    same reanalysis over an open HTTP endpoint, which means real wind can be
+    used without waiting on a registration. It is the same underlying data at
+    ERA5's native 0.25 degree resolution, so it is labelled ERA5 - with the
+    access route recorded, because where a number came from is part of the
+    number.
+
+    Values are cached on disk per grid cell per day. ERA5 is 0.25 degrees, so
+    a Sentinel-1 scene spans only two or three cells: rounding the request to
+    the grid turns hundreds of candidate lookups into a handful of fetches, and
+    makes a re-run reproducible offline.
+    """
+
+    GRID_DEG = 0.25
+    ENDPOINT = "https://archive-api.open-meteo.com/v1/archive"
+    SOURCE = "ERA5 (Open-Meteo archive)"
+
+    def __init__(self, cache_dir: str | Path = "data/wind/openmeteo",
+                 allow_network: bool = True, timeout_s: float = 45.0) -> None:
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.allow_network = allow_network
+        self.timeout_s = timeout_s
+        self._memo: dict[tuple, dict] = {}
+
+    def _cell(self, lon: float, lat: float) -> tuple[float, float]:
+        """Snap to the ERA5 grid so nearby candidates share one fetch."""
+        g = self.GRID_DEG
+        return (round(round(lon / g) * g, 2), round(round(lat / g) * g, 2))
+
+    def _day(self, cell_lon: float, cell_lat: float, date: str) -> dict:
+        key = (cell_lon, cell_lat, date)
+        if key in self._memo:
+            return self._memo[key]
+
+        path = self.cache_dir / f"{cell_lat}_{cell_lon}_{date}.json"
+        if path.exists():
+            import json
+
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self._memo[key] = payload
+            return payload
+
+        if not self.allow_network:
+            raise FileNotFoundError(
+                f"No cached wind for ({cell_lon}, {cell_lat}) on {date} and "
+                f"network access is disabled. Run scripts/fetch_wind.py first."
+            )
+
+        import json
+
+        import requests
+
+        params = {
+            "latitude": cell_lat, "longitude": cell_lon,
+            "start_date": date, "end_date": date,
+            "hourly": "wind_speed_10m,wind_direction_10m",
+            "wind_speed_unit": "ms", "timezone": "UTC",
+        }
+        response = requests.get(self.ENDPOINT, params=params, timeout=self.timeout_s)
+        response.raise_for_status()
+        payload = response.json()
+
+        hourly = payload.get("hourly") or {}
+        speeds = hourly.get("wind_speed_10m") or []
+        # An empty or all-null series is the documented failure mode for these
+        # APIs: HTTP 200 with nothing in it. Never let that become a wind value.
+        if not speeds or all(v is None for v in speeds):
+            raise ValueError(
+                f"Open-Meteo returned no ERA5 wind for ({cell_lon}, {cell_lat}) "
+                f"on {date}. The date may be outside the archive."
+            )
+
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self._memo[key] = payload
+        return payload
+
+    def __call__(self, lon: float, lat: float, when: datetime) -> WindContext:
+        cell_lon, cell_lat = self._cell(lon, lat)
+        payload = self._day(cell_lon, cell_lat, when.strftime("%Y-%m-%d"))
+
+        hourly = payload["hourly"]
+        times = hourly["time"]
+        speeds = hourly["wind_speed_10m"]
+        directions = hourly["wind_direction_10m"]
+
+        # Nearest hour with a real value. ERA5 is hourly, so this is at worst a
+        # 30 minute offset - well inside the variability the window score
+        # already tolerates.
+        target = when.replace(tzinfo=None)
+        best_i, best_gap = None, None
+        for i, stamp in enumerate(times):
+            if speeds[i] is None or directions[i] is None:
+                continue
+            gap = abs((datetime.fromisoformat(stamp) - target).total_seconds())
+            if best_gap is None or gap < best_gap:
+                best_i, best_gap = i, gap
+
+        if best_i is None:
+            raise ValueError(
+                f"No usable ERA5 wind near {when} at ({lon:.3f}, {lat:.3f})"
+            )
+
+        return WindContext.from_speed(
+            float(speeds[best_i]), float(directions[best_i]), source=self.SOURCE
+        )
+
+
 @dataclass
 class ConstantWind:
     """A single measured wind value applied across the scene."""
@@ -112,6 +225,14 @@ def build_wind_lookup(config):
         from core.config import resolve_path
 
         return ERA5Wind(resolve_path(path))
+
+    if source in ("open-meteo", "openmeteo", "era5-openmeteo"):
+        from core.config import resolve_path
+
+        return OpenMeteoERA5Wind(
+            cache_dir=resolve_path(section.get("cache_dir", "data/wind/openmeteo")),
+            allow_network=bool(section.get("allow_network", True)),
+        )
 
     if source in ("constant", "measured"):
         if "speed_ms" not in section:

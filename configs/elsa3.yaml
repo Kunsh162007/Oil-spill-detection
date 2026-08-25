@@ -15,10 +15,12 @@ detect:
   min_area_km2: 0.2
   classical_sensitivity: 2.5
 wind:
-  source: constant
-  speed_ms: 6.1                 # Arabian Sea, late May (pre-monsoon onset)
-  direction_deg: 250.0
-  label: climatology-Kerala-May
+  # Real ERA5 rather than a 6.1 m/s climatological guess. This matters most
+  # here: ERA5 puts the actual wind over the wreck near 12 m/s at acquisition,
+  # the top of the range where SAR can resolve oil at all. A validation case
+  # should be scored against the weather that was really there.
+  source: open-meteo
+  cache_dir: data/wind/openmeteo
 lookalike: {p_oil_threshold: 0.5}
 drift:
   backend: auto

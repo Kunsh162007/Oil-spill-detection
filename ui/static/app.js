@@ -74,6 +74,7 @@ function initMap() {
   }).addTo(state.map);
 
   state.layers.slicks = L.layerGroup().addTo(state.map);
+  state.layers.unattributed = L.layerGroup().addTo(state.map);
   state.layers.past = L.layerGroup().addTo(state.map);
   state.layers.rejected = L.layerGroup();
   state.layers.incidents = L.layerGroup().addTo(state.map);
@@ -85,6 +86,7 @@ function initMap() {
   });
 
   bindLayerToggle("layer-slicks", "slicks");
+  bindLayerToggle("layer-unattributed", "unattributed");
   bindLayerToggle("layer-past", "past");
   bindLayerToggle("layer-rejected", "rejected");
   bindLayerToggle("layer-incidents", "incidents");
@@ -146,9 +148,21 @@ function renderChips() {
   $("chip-timeliness").textContent = h.timeliness || "near-real-time";
 }
 
+// A detection with no ranked vessel is still a real detection - the physics
+// stage confirmed it as oil. What it lacks is an answer to "who". Listing it
+// under "active detections" alongside attributed ones implies a lead that does
+// not exist, so it gets its own bucket. CLAUDE.md rule 5: abstain when
+// uncertain, and say so where the user can see it.
 function activeSlicks() {
   return state.slicks.filter(
-    (f) => f.properties.is_oil && f.properties.activity === "active");
+    (f) => f.properties.is_oil && f.properties.activity === "active" &&
+           !f.properties.abstained);
+}
+
+function unattributedSlicks() {
+  return state.slicks.filter(
+    (f) => f.properties.is_oil && f.properties.activity === "active" &&
+           f.properties.abstained);
 }
 
 function pastSlicks() {
@@ -159,6 +173,7 @@ function pastSlicks() {
 function updateCounts() {
   const active = activeSlicks();
   $("count-slicks").textContent = active.length;
+  $("count-unattributed").textContent = unattributedSlicks().length;
   $("count-past").textContent = pastSlicks().length;
   $("count-rejected").textContent =
     state.slicks.filter((f) => !f.properties.is_oil).length;
@@ -202,6 +217,7 @@ function centroidOf(feature) {
 
 function drawSlickLayers() {
   state.layers.slicks.clearLayers();
+  state.layers.unattributed.clearLayers();
   state.layers.past.clearLayers();
   state.layers.rejected.clearLayers();
 
@@ -211,7 +227,8 @@ function drawSlickLayers() {
     // A past detection is real but not current; it must not sit on the map
     // in the same colour as something we believe is out there right now.
     const target = !p.is_oil ? state.layers.rejected
-      : isPast ? state.layers.past : state.layers.slicks;
+      : isPast ? state.layers.past
+      : p.abstained ? state.layers.unattributed : state.layers.slicks;
     const color = !p.is_oil ? C.rejected
       : isPast ? C.past : (p.abstained ? C.abstain : C.oil);
     const g = f.geometry;
@@ -228,7 +245,8 @@ function drawSlickLayers() {
       color, fillColor: color,
       fillOpacity: !p.is_oil ? 0.35 : isPast ? 0.6 : 0.85,
       weight: isPast ? 1.5 : 2,
-      className: p.is_oil && !isPast ? "slick-marker live" : "slick-marker",
+      className: p.is_oil && !isPast && !p.abstained
+        ? "slick-marker live" : "slick-marker",
     });
     marker._slickProps = p;
     target.addLayer(marker);
@@ -273,14 +291,16 @@ function markerRadius(p, zoom) {
      to look, so the dot must be findable; zoomed in the polygon takes over
      and the dot shrinks out of the way. */
   const base = zoom <= 3 ? 6 : zoom <= 5 ? 5.5 : zoom <= 7 ? 5 : 3.5;
-  const emphasis = p.is_oil && p.activity === "active" ? 1.35 : 1.0;
+  const emphasis =
+    p.is_oil && p.activity === "active" && !p.abstained ? 1.35 : 1.0;
   return base * emphasis;
 }
 
 function applyZoomStyling() {
   const zoom = state.map.getZoom();
   const showPolygons = zoom >= POLYGON_ZOOM;
-  [state.layers.slicks, state.layers.past, state.layers.rejected].forEach((group) => {
+  [state.layers.slicks, state.layers.unattributed, state.layers.past,
+   state.layers.rejected].forEach((group) => {
     group.eachLayer((layer) => {
       if (layer._isSlickPolygon) {
         layer.setStyle({ opacity: showPolygons ? 1 : 0, fillOpacity: showPolygons ? 0.3 : 0 });
@@ -467,6 +487,7 @@ function renderActive() {
         weathered, so it is filed as a past incident rather than left on the map
         implying it is still out there.
       </div>
+      ${unattributedNotice()}
       <div class="empty">
         ${past} past detection(s) available under <b>Past incidents</b>.<br><br>
         For active detections, fetch recent imagery:
@@ -478,8 +499,20 @@ function renderActive() {
   $("panel-body").innerHTML =
     `<div class="section"><h3>Detected in fresh imagery</h3>
       ${active.map(slickCard).join("")}</div>
+     ${unattributedNotice()}
      <div class="notice caution">${esc(state.slicksMeta.disclaimer || "")}</div>`;
   wireCards();
+}
+
+function unattributedNotice() {
+  const n = unattributedSlicks().length;
+  if (!n) return "";
+  return `<div class="notice caution">
+    <b>${n} further detection(s) have insufficient data to attribute.</b>
+    The physics stage confirmed them as oil, but no AIS track could be ranked
+    against the drift origin &mdash; so no vessel is suggested at all. They are
+    listed separately under <b>Insufficient data</b> rather than here, because
+    a detection with no candidate is not a lead.</div>`;
 }
 
 function renderPast() {
@@ -491,8 +524,10 @@ function renderPast() {
   $("panel-sub").innerHTML =
     `${past.length} of our detections &middot; ${state.incidents.length} from public registries`;
 
+  const unattributed = unattributedSlicks();
   const filters = [
     ["detections", "Our detections (" + past.length + ")"],
+    ["insufficient", "Insufficient data (" + unattributed.length + ")"],
     ["documented", "Documented (" + state.incidents.length + ")"],
     ["rejected", "Rejected (" + rejected.length + ")"],
   ];
@@ -509,6 +544,17 @@ function renderPast() {
       These are slicks OUR pipeline found in archived imagery. They are
       historical &mdash; that oil is long gone. Shown so every detection can be
       inspected and audited.</div>`;
+  } else if (state.pastFilter === "insufficient") {
+    body += unattributed.length
+      ? '<div class="section">' + unattributed.map(slickCard).join("") + "</div>"
+      : '<div class="empty">Every current detection has a ranked candidate.</div>';
+    body += `<div class="notice caution">
+      <b>Confirmed as oil, but unattributable.</b> Each of these passed the
+      physics stage &mdash; wind, damping, shape and texture. What is missing is
+      AIS: with no vessel track near the drift-estimated origin there is nobody
+      to rank, so the system declines to name one. Absence of a ship is not
+      evidence against oil &mdash; a wreck, a natural seep, or a vessel running
+      dark all look exactly like this.</div>`;
   } else if (state.pastFilter === "documented") {
     const sorted = [...state.incidents].sort((a, b) => {
       const va = a.properties.volume_m3 || 0, vb = b.properties.volume_m3 || 0;
