@@ -1,54 +1,29 @@
 # Deploying
 
-The application is two tiers. You can deploy the API alone (it can serve the
-UI itself) or both separately.
+## Render (free, recommended)
+
+Render offers free Docker web services. `render.yaml` in this repo configures
+everything.
+
+1. Sign in at https://render.com with GitHub
+2. **New +** -> **Blueprint**
+3. Select this repository
+4. Render reads `render.yaml` -> **Apply**
+
+The first build takes about 10 minutes. You get one URL serving both the API
+and the map.
+
+### What the free tier means
+
+| Constraint | Consequence |
+|---|---|
+| No persistent disk | Demo scenes and the incident registry are baked into the image at build time, so a cold container still has data. Scenes fetched at runtime are lost on restart. |
+| Sleeps after 15 min idle | The next request takes ~50 s to wake the service. Open it once before a demo. |
+| 512 MB RAM | Enough for the classical detector. Not enough for the U-Net, which is not deployed anyway. |
 
 ---
 
-## Option 1 — Hugging Face Spaces (recommended, genuinely free)
-
-Free, Docker-native, **16 GB RAM**, and no credit card. The most capable free
-option for an image this size (~3 GB).
-
-1. Create a Space at https://huggingface.co/new-space
-   - **SDK:** Docker
-   - **Hardware:** CPU basic (free)
-2. Clone it and copy this project in:
-
-   ```bash
-   git clone https://huggingface.co/spaces/<your-user>/<space-name>
-   cd <space-name>
-   # copy everything except the venv and data
-   cp -r /path/to/Oil-spill-detection/{Dockerfile,requirements.txt,core,ingest,detect,drift,attribute,decision,api,ui,scripts,configs} .
-   cp /path/to/Oil-spill-detection/SPACE_README.md README.md
-   git add -A && git commit -m "deploy" && git push
-   ```
-
-3. The Space builds and starts on port 7860. First build takes ~10 minutes.
-
-`SPACE_README.md` already carries the YAML front matter Spaces needs — it must
-be named `README.md` in the Space.
-
----
-
-## Option 2 — Render
-
-Free web services work but have **no persistent disk**, so analysed scenes are
-lost on each cold start and re-computed. Demo scenes are baked into the image,
-so the app still works.
-
-1. New → Web Service → connect the GitHub repo
-2. Runtime **Docker**, health check path `/api/health`
-3. Environment:
-   - `SERVE_UI=true` (single service), or `false` if hosting the UI separately
-   - `CORS_ORIGINS=https://<your-frontend>` when the UI is separate
-
-`render.yaml` in this repo defines the full two-service topology with a
-persistent disk, for when you move off the free tier.
-
----
-
-## Option 3 — Two tiers locally
+## Local, two tiers
 
 ```bash
 docker compose up --build
@@ -56,15 +31,27 @@ docker compose up --build
 # API http://localhost:8000/docs
 ```
 
+`SERVE_UI=false` turns the API into a pure API and `docker/Dockerfile.frontend`
+serves the UI separately - the split matters on a paid plan where the two can
+scale independently. On a free plan one service is better, because each
+sleeping service is another cold start.
+
+---
+
+## Local, single process
+
+```bash
+python -m uvicorn api.main:app --port 8000
+```
+
 ---
 
 ## After deploying
 
-Check `GET /api/pipeline/capabilities` — it reports whether storage is
-writable, the real imagery and AIS lag, and which data sources are open versus
-token-gated.
+`GET /api/pipeline/capabilities` reports whether storage is writable, the real
+imagery and AIS lag, and which sources are open versus token-gated.
 
-To pull fresh imagery (no account needed):
+Fetch fresh imagery (no account needed):
 
 ```bash
 curl -X POST https://<your-app>/api/pipeline/fetch \
@@ -72,15 +59,11 @@ curl -X POST https://<your-app>/api/pipeline/fetch \
   -d '{"bbox":[68,8,78,20],"days":3,"max_scenes":2}'
 ```
 
-That returns a job id; poll `GET /api/pipeline/jobs/<id>`.
+Returns a job id; poll `GET /api/pipeline/jobs/<id>`.
 
 ---
 
-## Notes
+## Not Hugging Face Spaces
 
-- The image is CPU-only by design. The trained checkpoint is not deployed —
-  see the README on why it is not yet validated at scene level.
-- `.dockerignore` keeps the virtualenv and raw imagery out of the build
-  context; without it the build ships gigabytes to the daemon.
-- The build fails deliberately if a source file copies in empty, which is what
-  a disk-full build produces otherwise.
+Hugging Face now requires a PRO subscription for Docker Spaces on cpu-basic;
+only static Spaces remain free. Creating one returns HTTP 402.
