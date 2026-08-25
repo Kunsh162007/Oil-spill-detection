@@ -74,13 +74,22 @@ class ConstantField:
 
 
 class NetCDFField:
-    """Reads u/v from a CMEMS or ERA5 NetCDF via xarray.
+    """Reads u/v from a CMEMS or ERA5 NetCDF.
 
     Variable names differ between products, so they are passed in rather than
     guessed. Interpolation is linear in space and time; requests outside the
     file's coverage raise instead of silently clamping to the nearest edge,
     because a drift run quietly pinned to the domain boundary produces a
     confident and completely wrong origin.
+
+    The whole field is loaded into numpy once and interpolated by hand.
+    xarray.interp is convenient but it realigns dimensions and builds an
+    intermediate Dataset on every call, and a drift run calls this once per
+    particle per timestep - 300 particles over 24 steps for each of several
+    candidates is tens of thousands of calls. That put one real-currents scene
+    at 620 s against a two-minute whole-scene target. A CMEMS subset for one
+    scene is only a few million floats, so it fits in memory comfortably and
+    each sample becomes a handful of array lookups.
     """
 
     def __init__(
@@ -94,44 +103,118 @@ class NetCDFField:
         depth_index: int | None = 0,
         name: str = "cmems",
     ) -> None:
+        import numpy as np
         import xarray as xr
 
         self.path = Path(path)
         if not self.path.exists():
             raise FileNotFoundError(f"NetCDF field not found: {self.path}")
-        self.ds = xr.open_dataset(self.path)
-        for var in (u_var, v_var):
-            if var not in self.ds:
-                raise KeyError(
-                    f"{var!r} not in {self.path.name}; available: {list(self.ds.data_vars)}"
-                )
+
         self.u_var, self.v_var = u_var, v_var
         self.lon_var, self.lat_var, self.time_var = lon_var, lat_var, time_var
-        self.depth_index = depth_index
         self.name = name
         self.source = f"{name}:{self.path.name}"
+
+        with xr.open_dataset(self.path) as ds:
+            for var in (u_var, v_var):
+                if var not in ds:
+                    raise KeyError(
+                        f"{var!r} not in {self.path.name}; "
+                        f"available: {list(ds.data_vars)}"
+                    )
+            u, v = ds[u_var], ds[v_var]
+            if depth_index is not None and "depth" in u.dims:
+                u, v = u.isel(depth=depth_index), v.isel(depth=depth_index)
+            u, v = u.squeeze(), v.squeeze()
+
+            self._lons = np.asarray(ds[lon_var].values, dtype=np.float64)
+            self._lats = np.asarray(ds[lat_var].values, dtype=np.float64)
+            self._has_time = time_var in u.dims
+            order = [d for d in (time_var, lat_var, lon_var) if d in u.dims]
+            u = u.transpose(*order)
+            v = v.transpose(*order)
+            self._u = np.asarray(u.values, dtype=np.float64)
+            self._v = np.asarray(v.values, dtype=np.float64)
+            if self._has_time:
+                # int64 nanoseconds: monotonic, exact, and cheap to search.
+                self._times = ds[time_var].values.astype("datetime64[ns]").astype(np.int64)
+            else:
+                self._times = None
+
+        # searchsorted needs ascending axes. Latitude is descending in some
+        # products (ERA5 among them), so flip rather than assume.
+        if self._lats.size > 1 and self._lats[0] > self._lats[-1]:
+            self._lats = self._lats[::-1]
+            axis = 1 if self._has_time else 0
+            self._u = np.flip(self._u, axis=axis)
+            self._v = np.flip(self._v, axis=axis)
+        if self._lons.size > 1 and self._lons[0] > self._lons[-1]:
+            self._lons = self._lons[::-1]
+            axis = 2 if self._has_time else 1
+            self._u = np.flip(self._u, axis=axis)
+            self._v = np.flip(self._v, axis=axis)
+
+    @staticmethod
+    def _bracket(axis, value: float, label: str, unit: str = ""):
+        """Lower index and weight for `value` on an ascending axis.
+
+        Raises outside the range rather than clamping - see the class docstring.
+        """
+        import numpy as np
+
+        if axis.size == 1:
+            if not np.isclose(float(axis[0]), value, atol=1e-6):
+                raise ValueError(
+                    f"{label} {value}{unit} is outside the single {label} "
+                    f"value {axis[0]}{unit} in this field"
+                )
+            return 0, 0.0
+        if value < axis[0] or value > axis[-1]:
+            raise ValueError(
+                f"{label} {value}{unit} is outside the field's range "
+                f"{axis[0]}{unit} to {axis[-1]}{unit}"
+            )
+        i = int(np.searchsorted(axis, value)) - 1
+        i = min(max(i, 0), axis.size - 2)
+        span = axis[i + 1] - axis[i]
+        weight = 0.0 if span == 0 else float((value - axis[i]) / span)
+        return i, weight
 
     def sample(self, lon: float, lat: float, when: datetime) -> FieldSample:
         import numpy as np
 
-        sel = {self.lon_var: lon, self.lat_var: lat}
-        if self.time_var in self.ds.dims:
-            sel[self.time_var] = np.datetime64(when.replace(tzinfo=None))
-
         try:
-            point = self.ds.interp(**sel)
-        except Exception as exc:
+            j, wy = self._bracket(self._lats, lat, "latitude", " deg")
+            i, wx = self._bracket(self._lons, lon, "longitude", " deg")
+        except ValueError as exc:
             raise ValueError(
-                f"Could not interpolate {self.path.name} at ({lon:.3f}, {lat:.3f}, {when}): {exc}"
+                f"Could not interpolate {self.path.name} at "
+                f"({lon:.3f}, {lat:.3f}, {when}): {exc}"
             ) from exc
 
-        u = point[self.u_var]
-        v = point[self.v_var]
-        if self.depth_index is not None and "depth" in u.dims:
-            u = u.isel(depth=self.depth_index)
-            v = v.isel(depth=self.depth_index)
+        def plane(cube, k: int):
+            """Bilinear blend of one time slice."""
+            block = cube[k] if self._has_time else cube
+            a = block[j, i]; b = block[j, i + 1]
+            c = block[j + 1, i]; d = block[j + 1, i + 1]
+            return ((a * (1 - wx) + b * wx) * (1 - wy)
+                    + (c * (1 - wx) + d * wx) * wy)
 
-        uu, vv = float(u.values), float(v.values)
+        if self._has_time and self._times is not None:
+            stamp = np.datetime64(when.replace(tzinfo=None), "ns").astype(np.int64)
+            try:
+                k, wt = self._bracket(self._times, float(stamp), "time")
+            except ValueError as exc:
+                raise ValueError(
+                    f"Could not interpolate {self.path.name} at "
+                    f"({lon:.3f}, {lat:.3f}, {when}): {exc}"
+                ) from exc
+            uu = plane(self._u, k) * (1 - wt) + plane(self._u, k + 1) * wt
+            vv = plane(self._v, k) * (1 - wt) + plane(self._v, k + 1) * wt
+        else:
+            uu, vv = plane(self._u, 0), plane(self._v, 0)
+
+        uu, vv = float(uu), float(vv)
         if not (math.isfinite(uu) and math.isfinite(vv)):
             raise ValueError(
                 f"{self.name} returned NaN at ({lon:.3f}, {lat:.3f}, {when}) - "
@@ -140,7 +223,8 @@ class NetCDFField:
         return FieldSample(uu, vv, self.source)
 
     def close(self) -> None:
-        self.ds.close()
+        """No-op: the file is read once at construction and closed there."""
+        return None
 
 
 @dataclass
