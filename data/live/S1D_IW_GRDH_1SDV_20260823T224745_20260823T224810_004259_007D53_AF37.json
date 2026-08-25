@@ -1,0 +1,18 @@
+{
+  "scene_id": "S1D_IW_GRDH_1SDV_20260823T224745_20260823T224810_004259_007D53_AF37",
+  "label": "Singapore Strait",
+  "acquired_at": "2026-08-23T22:47:45.212827+00:00",
+  "bbox": [
+    103.072177,
+    0.413248,
+    104.412939,
+    0.961625
+  ],
+  "vv_path": "data\\live\\S1D_IW_GRDH_1SDV_20260823T224745_20260823T224810_004259_007D53_AF37_vv.tif",
+  "vh_path": "data\\live\\S1D_IW_GRDH_1SDV_20260823T224745_20260823T224810_004259_007D53_AF37_vh.tif",
+  "orbit_direction": "UNKNOWN",
+  "config": "configs/live.yaml",
+  "REAL_IMAGERY": true,
+  "source": "AWS Open Data sentinel-s1-l1c (public, no credentials)",
+  "age_hours_at_fetch": 14.6
+}

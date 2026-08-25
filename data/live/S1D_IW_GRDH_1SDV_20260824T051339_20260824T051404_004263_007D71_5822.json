@@ -1,0 +1,18 @@
+{
+  "scene_id": "S1D_IW_GRDH_1SDV_20260824T051339_20260824T051404_004263_007D71_5822",
+  "label": "Mediterranean",
+  "acquired_at": "2026-08-24T05:13:39.700676+00:00",
+  "bbox": [
+    10.038642,
+    32.624021,
+    13.154285,
+    33.71026
+  ],
+  "vv_path": "data\\live\\S1D_IW_GRDH_1SDV_20260824T051339_20260824T051404_004263_007D71_5822_vv.tif",
+  "vh_path": "data\\live\\S1D_IW_GRDH_1SDV_20260824T051339_20260824T051404_004263_007D71_5822_vh.tif",
+  "orbit_direction": "UNKNOWN",
+  "config": "configs/live.yaml",
+  "REAL_IMAGERY": true,
+  "source": "AWS Open Data sentinel-s1-l1c (public, no credentials)",
+  "age_hours_at_fetch": 8.2
+}

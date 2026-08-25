@@ -23,4 +23,8 @@ data/reference/*.csv
 data/dev/*_manifest.json
 data/dev/scenes/
 data/live/
+# ...except the manifests. They are a few KB each and the deployed container
+# needs them to discover a scene at all - a precomputed analysis with no
+# manifest behind it is never loaded. The imagery stays out via the *.tif rule.
+!data/live/*.json
 data/demo_finale/*.tif

@@ -1,0 +1,18 @@
+{
+  "scene_id": "S1D_IW_GRDH_1SDV_20260819T142825_20260819T142850_004196_007B07_22D3",
+  "label": "Caspian",
+  "acquired_at": "2026-08-19T14:28:25.123766+00:00",
+  "bbox": [
+    50.501869,
+    39.533908,
+    53.028624,
+    41.419679
+  ],
+  "vv_path": "data\\live\\S1D_IW_GRDH_1SDV_20260819T142825_20260819T142850_004196_007B07_22D3_vv.tif",
+  "vh_path": "data\\live\\S1D_IW_GRDH_1SDV_20260819T142825_20260819T142850_004196_007B07_22D3_vh.tif",
+  "orbit_direction": "UNKNOWN",
+  "config": "configs/live.yaml",
+  "REAL_IMAGERY": true,
+  "source": "AWS Open Data sentinel-s1-l1c (public, no credentials)",
+  "age_hours_at_fetch": 119.0
+}

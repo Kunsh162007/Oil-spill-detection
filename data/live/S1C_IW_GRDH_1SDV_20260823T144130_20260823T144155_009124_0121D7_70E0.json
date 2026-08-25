@@ -1,0 +1,18 @@
+{
+  "scene_id": "S1C_IW_GRDH_1SDV_20260823T144130_20260823T144155_009124_0121D7_70E0",
+  "label": "Persian Gulf",
+  "acquired_at": "2026-08-23T14:41:30.073940+00:00",
+  "bbox": [
+    49.647935,
+    28.190008,
+    51.335539,
+    30.015628
+  ],
+  "vv_path": "data\\live\\S1C_IW_GRDH_1SDV_20260823T144130_20260823T144155_009124_0121D7_70E0_vv.tif",
+  "vh_path": "data\\live\\S1C_IW_GRDH_1SDV_20260823T144130_20260823T144155_009124_0121D7_70E0_vh.tif",
+  "orbit_direction": "UNKNOWN",
+  "config": "configs/live.yaml",
+  "REAL_IMAGERY": true,
+  "source": "AWS Open Data sentinel-s1-l1c (public, no credentials)",
+  "age_hours_at_fetch": 22.7
+}

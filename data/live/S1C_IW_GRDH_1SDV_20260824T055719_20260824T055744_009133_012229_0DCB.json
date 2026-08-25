@@ -1,0 +1,18 @@
+{
+  "scene_id": "S1C_IW_GRDH_1SDV_20260824T055719_20260824T055744_009133_012229_0DCB",
+  "label": "North Sea",
+  "acquired_at": "2026-08-24T05:57:19.489771+00:00",
+  "bbox": [
+    1.943549,
+    52.400103,
+    5.177697,
+    53.595508
+  ],
+  "vv_path": "data\\live\\S1C_IW_GRDH_1SDV_20260824T055719_20260824T055744_009133_012229_0DCB_vv.tif",
+  "vh_path": "data\\live\\S1C_IW_GRDH_1SDV_20260824T055719_20260824T055744_009133_012229_0DCB_vh.tif",
+  "orbit_direction": "UNKNOWN",
+  "config": "configs/live.yaml",
+  "REAL_IMAGERY": true,
+  "source": "AWS Open Data sentinel-s1-l1c (public, no credentials)",
+  "age_hours_at_fetch": 7.5
+}
