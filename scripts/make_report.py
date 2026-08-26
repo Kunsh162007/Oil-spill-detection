@@ -303,16 +303,99 @@ def build(out_path: Path) -> None:
          "running is not the trained network."],
     ], [W * 0.48, W * 0.52], s))
 
+    F.append(PageBreak())
     P("9. Things this system cannot do", "h1")
-    P("&bull; Segmentation is the classical detector; the trained U-Net does not "
-      "transfer to whole scenes.<br/>"
-      "&bull; Look-alike weights are hand-set physical priors, not fitted.<br/>"
-      "&bull; Attribution abstains on 97% of detections &mdash; correctly: the real "
-      "scenes have no AIS coverage, are documented fixed sources, or contain no "
-      "slick.<br/>"
-      "&bull; One of 16 scenes is synthetic, labelled as such wherever it appears."
-      "<br/>"
-      "&bull; Outside the wind window, \"no detection\" does not mean \"no oil\".")
+    P("Written plainly, because these are the questions the system will be asked "
+      "and it is better to answer them first. None of these are bugs. They are "
+      "limits of radar, of free data, or of what a correlation can honestly "
+      "support.", "p")
+
+    P("9.1 We cannot watch continuously", "h2")
+    P("The satellite is not parked over India. It circles the Earth, and it passes "
+      "over any given patch of sea roughly <b>once every 6 to 12 days</b>. Oil "
+      "spreads, breaks up and disappears in days. So a ship could dump oil the "
+      "morning after a pass, and by the next pass there would be nothing left to "
+      "see. <b>We are taking occasional photographs, not watching a video.</b> "
+      "Anyone who says otherwise about a free satellite service is mistaken.", "p")
+
+    P("9.2 We cannot see it as it happens", "h2")
+    P("Even when the satellite does pass over, the picture takes <b>3 to 24 "
+      "hours</b> to reach us: it has to be downlinked, processed and published. "
+      "The free ship-tracking data is slower still, about <b>3 days</b> behind. So "
+      "the honest description is \"we find it soon after\", never \"we find it "
+      "live\". A spill we report this morning may have happened yesterday, and the "
+      "ship may already be somewhere else.", "p")
+
+    P("9.3 We cannot see oil in the wrong wind", "h2")
+    P("This is the one people find most surprising. Radar does not see oil "
+      "directly &mdash; it sees that the sea is unusually <i>smooth</i> where the "
+      "oil is. That only works in a middle range of wind.", "p")
+    P("If the wind is <b>too light</b> (under about 2 m/s), the whole sea is "
+      "already smooth, so oil looks the same as everything around it. If the wind "
+      "is <b>too strong</b> (above about 15 m/s), the waves churn the oil under "
+      "and it stops flattening anything. Either way we see nothing.", "p")
+    P("The consequence matters: <b>\"we found no oil\" is not the same as "
+      "\"there was no oil\".</b> If the wind was wrong, we simply could not have "
+      "seen it. The system records the wind with every result so this can always "
+      "be checked.", "p")
+
+    P("9.4 We cannot tell how much oil there is", "h2")
+    P("Radar tells us <i>something is there</i> and roughly what shape and area it "
+      "covers. It cannot tell us <b>how thick the layer is</b>, so it cannot tell "
+      "us the volume. A very thin sheen and a serious slick can look similar. It "
+      "also cannot tell us <b>what kind</b> of oil it is &mdash; crude, diesel, "
+      "fuel oil or vegetable oil all just look dark. Only a ship or an aircraft "
+      "taking a sample can answer those.", "p")
+
+    P("9.5 We cannot prove who did it", "h2")
+    P("This is the most important limit in the whole document. What the system "
+      "actually finds is: <i>this oil probably started near here, around this "
+      "time, and these ships were nearby.</i> That is a <b>coincidence in space "
+      "and time</b>. It is a good reason for an investigator to look closer. It is "
+      "not evidence.", "p")
+    P("Three things stop it from being proof. The backwards drift estimate has "
+      "real uncertainty &mdash; typically tens of kilometres, and it grows the "
+      "further back we go. Busy sea lanes have many ships passing the same point. "
+      "And ship tracking can be switched off or falsified, so the guilty ship may "
+      "simply not appear in the list at all. <b>We therefore publish a ranked list "
+      "with confidence scores, and never name a single culprit.</b>", "p")
+
+    P("9.6 We often cannot name anyone at all", "h2")
+    P("Right now <b>1 of our 34 detections</b> has any ships ranked against it. "
+      "For the other 33 the system says \"not enough evidence\". That is "
+      "deliberate. The reasons are: free ship data does not cover Indian waters in "
+      "our sample; some slicks come from a known leaking wellhead where blaming a "
+      "passing ship would be plainly wrong; and some had no ship anywhere near the "
+      "estimated origin. <b>A system that always produces a name is a system that "
+      "is guessing.</b>", "p")
+
+    P("9.7 We cannot see very small or very faint slicks", "h2")
+    P("Below roughly 0.05 km&sup2; a dark patch is indistinguishable from ordinary "
+      "radar noise, so it is discarded. Small deliberate discharges can slip under "
+      "that floor. Raising the sensitivity would mean reporting noise as oil, "
+      "which is worse.", "p")
+
+    P("9.8 We cannot work reliably close to shore", "h2")
+    P("Near the coast, harbours, shallow water and land features all create dark "
+      "and bright patterns that confuse the detector. Results in coastal water are "
+      "weaker than in open sea, and our test data for coastal cases is thin &mdash; "
+      "19 samples out of 174.", "p")
+
+    P("9.9 What we have not finished", "h2")
+    P("Two parts of the system are not what was planned, and the interface says so "
+      "rather than hiding it. The AI segmentation model was trained and reached "
+      "usable accuracy on small image tiles, but did not work on full scenes, so a "
+      "simpler and more reliable method is running instead. And the oil-versus-"
+      "look-alike scoring uses values set by hand from known physics rather than "
+      "learned from data &mdash; we tried to learn them from a public dataset and "
+      "stopped when we found that dataset could not support it honestly (section "
+      "7).", "p")
+
+    P("9.10 What radar CAN do, for balance", "h2")
+    P("It sees through cloud, and it works at night. That is why radar is used for "
+      "this at all: an ordinary camera would be blind half the time and blocked by "
+      "weather the rest. The limits above are the price of that capability, not "
+      "signs of a broken system.", "p")
 
     # The architecture diagram is a separate deliverable, not an appendix:
     # it is a tall top-to-bottom flow and shrinking it onto A4 made it
