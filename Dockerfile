@@ -1,6 +1,11 @@
-# Root Dockerfile - what Hugging Face Spaces, Render and Railway pick up by
-# default. It is the PaaS image; docker/Dockerfile.paas is kept as the
-# canonical copy for docker-compose and explicit builds.
+# The deployed image. It lives at the repo root because that is where every
+# PaaS looks by default - Hugging Face Spaces cannot be pointed elsewhere at
+# all, and Render finds it without a dockerfilePath. Do not move it into
+# docker/ for tidiness; the two files that DO live there are the ones no PaaS
+# ever builds:
+#
+#   docker/Dockerfile.train      CUDA base, for `make docker-train`
+#   docker/Dockerfile.frontend   nginx, only used by docker-compose's ui service
 #
 # Local:  docker build -t oilspill . && docker run -p 7860:7860 oilspill
 FROM python:3.11-slim

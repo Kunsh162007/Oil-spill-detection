@@ -5,6 +5,11 @@
 # Two classes, not five. The masks label oil against everything else, so
 # claiming a look-alike or ship class the data cannot supervise would be
 # dishonest - and look-alike rejection is the physics stage's job by design.
+#
+# THE DATA THIS CONFIG POINTS AT IS NO LONGER ON DISK. The fine-tune ran, the
+# checkpoint is models/stage_b_patchonly.pt, and the training patches were
+# deleted afterwards. Re-run scripts/prepare_dataset.py against a fresh Zenodo
+# download to rebuild the manifests before using this config again.
 train:
   arch: unet
   encoder: resnet34          # Cerulean's choice for this exact task

@@ -34,6 +34,20 @@ abstention · `api/` + `ui/` · build-time precompute · 230+ tests passing.
   `docs/lookalike-fit-attempt.md`. The one result that survived: look-alikes
   sit below the wind window 32% of the time against 21% for real oil.
 
+### The training data is gone; the checkpoint is not
+Fine-tuning is finished, so the inputs to it were deleted (26 Aug 2026): the
+Zenodo Gulf of Mexico patches under `data/raw/extracted/`, the
+`data/dev/*_manifest.json` indices built from them, the `data/dev/scenes/`
+GOM stubs, and the 2.4 MB PANGAEA tabular export at `data/raw/pangaea/`.
+
+What survives is what the work produced, not what fed it:
+`models/stage_b_patchonly.pt` (the checkpoint), `data/dev/lookalike_features.csv`
+(the extracted features, tracked in git) and `docs/lookalike-fit-attempt.md`.
+All of the deleted inputs are re-downloadable without credentials — Zenodo
+record 4672426, and the PANGAEA curl printed by `scripts/extract_features.py`.
+`configs/train_gom.yaml` still points at the manifests and says so at the top;
+run `scripts/prepare_dataset.py` to rebuild them before training again.
+
 ### The corrections that mattered most
 1. **Real wind cut detections from 63 to 28.** Both configs had used a
    climatological constant sitting mid-window, so every candidate scored a

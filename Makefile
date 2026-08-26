@@ -84,4 +84,4 @@ docker-train:
 	docker build -t oilspill-train -f docker/Dockerfile.train .
 
 clean:
-	$(PY) -c "import shutil,glob,os; [os.remove(p) for p in glob.glob('data/cache/*.pkl')]; [shutil.rmtree(d, ignore_errors=True) for d in ('.pytest-tmp','.pytest_cache','htmlcov')]"
+	$(PY) -c "import shutil,glob,os; [os.remove(p) for p in glob.glob('data/cache/*.pkl')]; [shutil.rmtree(d, ignore_errors=True) for d in ('.pytest-tmp','.pytest_cache','htmlcov')]; [shutil.rmtree(d, ignore_errors=True) for d in glob.glob('**/__pycache__', recursive=True) if '.venv' not in d]; os.path.exists('.coverage') and os.remove('.coverage')"

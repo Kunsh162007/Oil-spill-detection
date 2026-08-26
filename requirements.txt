@@ -1,3 +1,15 @@
+# ---------------------------------------------------------------------------
+# There are four dependency files, split by WHERE the code runs, not by taste:
+#
+#   requirements.txt           development: everything a laptop needs to run
+#                              the pipeline, the tests and the eval scripts.
+#   requirements-api.txt       the deployed container ONLY. A strict subset -
+#                              see the note in that file for why.
+#   requirements-ml.txt        torch and friends. Training only, ~2.5 GB, and
+#                              nothing at serve time imports it.
+#   requirements-optional.txt  heavy or credentialed extras. The pipeline
+#                              degrades gracefully when they are absent.
+# ---------------------------------------------------------------------------
 # Core numerics
 numpy>=1.26,<3
 scipy>=1.11
