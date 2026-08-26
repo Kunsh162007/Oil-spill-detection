@@ -84,7 +84,30 @@ def build(out_path: Path) -> None:
     P("Decision record &mdash; what was chosen, what was rejected, and what changed. "
       "Generated 26 August 2026.", "sub")
 
-    P("1. What the system does", "h1")
+    P("0. In plain words &mdash; read this first", "h1")
+    P("Ships sometimes dump oily waste at sea and sail away. Nobody is watching "
+      "most of the ocean, so it usually goes unnoticed. This system watches it "
+      "from a satellite.", "p")
+    P("<b>How it works, in four sentences.</b> A radar satellite photographs the "
+      "sea. Oil flattens the water, so it shows up as a dark patch. Many other "
+      "things also look dark &mdash; calm water, algae, rain &mdash; so we use the "
+      "wind, the shape and the texture to work out which patches are really oil. "
+      "Then, because oil drifts, we run the sea currents backwards to guess where "
+      "it started, and list which ships were near that spot at that time.", "p")
+    P("<b>The most important thing to understand.</b> We produce a <i>ranked list "
+      "of ships that could be responsible</i>. That is a lead for an investigator "
+      "to follow, not proof. A ship being near a spill is a coincidence until "
+      "somebody checks. If the evidence is weak, the system says \"not enough "
+      "evidence\" instead of guessing &mdash; and today it says that 97% of the "
+      "time, which is it working properly, not failing.", "p")
+    P("<b>Jargon you will hear.</b> "
+      "<i>SAR</i> is the radar camera on the satellite. "
+      "<i>Look-alike</i> is something dark that is not oil. "
+      "<i>AIS</i> is the radio signal ships broadcast saying where they are. "
+      "<i>Drift</i> is oil moving with the current after it spills. "
+      "<i>Abstain</i> means we decline to name anyone.", "p")
+
+    P("1. What the system does, in more detail", "h1")
     P("A Sentinel-1 radar scene of the ocean goes in. Dark patches come out, each "
       "tested against physics to decide whether it is oil or a natural look-alike. "
       "Surviving slicks are drifted backwards through real ocean currents to estimate "
@@ -93,7 +116,7 @@ def build(out_path: Path) -> None:
     P("Deployed at oilspill.onrender.com: 16 scenes, 34 presented detections, "
       "74 MB resident against a 512 MB limit.")
 
-    P("2. Data sources: what was chosen and what was not", "h1")
+    P("2. Where the data comes from, and what we turned down", "h1")
     P("The binding constraint was access, not quality. Every source had to be "
       "obtainable without an institutional affiliation, and two datasets the original "
       "plan depended on turned out not to be.")
@@ -128,8 +151,8 @@ def build(out_path: Path) -> None:
          "Used for corroboration only, never as training labels."],
     ], [W * 0.13, W * 0.40, W * 0.47], s))
 
-    P("3. Model choices", "h1")
-    P("3.1 Segmentation", "h2")
+    P("3. Which methods we used to find the oil", "h1")
+    P("3.1 Finding the dark patches", "h2")
     P("The plan called for a U-Net with a ResNet-34 encoder, chosen because SkyTruth "
       "Cerulean uses it for this exact task &mdash; a complete answer to \"why this "
       "architecture\". It was trained, reached <b>0.70 oil IoU on balanced "
@@ -140,7 +163,7 @@ def build(out_path: Path) -> None:
       "<i>classical-dark-patch</i> on its own status panel rather than implying a "
       "deep model is active. A detector that works beats a better one that does not.")
 
-    P("3.2 Look-alike rejection", "h2")
+    P("3.2 Deciding which dark patches are really oil", "h2")
     P("Deliberately <b>not</b> a neural network. A small logistic model over "
       "interpretable physical features means every rejection can be explained out "
       "loud: <i>\"rejected: wind 1.2 m/s, below the 2 m/s floor\"</i>. An explainable "
@@ -149,8 +172,8 @@ def build(out_path: Path) -> None:
       "fourth input channel would probably help slightly, and would make the "
       "wind-ablation claim unmeasurable.")
 
-    P("4. Physics decisions", "h1")
-    P("4.1 The wind window is hard at the bottom, graded at the top", "h2")
+    P("4. The science rules we built in", "h1")
+    P("4.1 Wind: a strict rule at one end, a flexible one at the other", "h2")
     P("The two ends of the detection window fail differently, and treating them "
       "identically was a bug. <b>Below</b> the floor, calm water is genuinely "
       "indistinguishable from oil &mdash; every dark patch is unexplainable, so a "
@@ -162,7 +185,7 @@ def build(out_path: Path) -> None:
       "what the brief asked for &mdash; \"soft edges &hellip; a graded feature, not a "
       "hard cutoff\" &mdash; and the original code did not implement it.")
 
-    P("4.2 Corroboration radius scales with drift time", "h2")
+    P("4.2 The longer ago it spilled, the further away we look", "h2")
     P("A flat 60 km asked a slick found a fortnight after an incident to have stayed "
       "where it started, which is the one thing oil never does. Real MSC ELSA 3 "
       "detections 15 days later sat 87 km out and scored as uncorroborated. The "
@@ -170,7 +193,7 @@ def build(out_path: Path) -> None:
       "the 0.3 m/s the project's own validation script quotes, so it errs toward "
       "matching too little rather than too much.")
 
-    P("4.3 Fixed sources are excluded before vessel attribution", "h2")
+    P("4.3 Never blame a ship for a leak that is already known about", "h2")
     P("The most serious bug found in this build. On the Taylor Energy MC-20 scene the "
       "system ranked three named vessels &mdash; FAST RUNNER, SM NEW ORLEANS, GULF "
       "DAWN &mdash; against oil from a wellhead that has leaked continuously since "
@@ -184,7 +207,7 @@ def build(out_path: Path) -> None:
       "match now overrides the geometric test: an independent identification outranks "
       "a radius.")
 
-    P("5. Serving architecture", "h1")
+    P("5. How the website runs on a free server", "h1")
     P("The free tier gives 512 MB. The pipeline needs far more, but the <i>result</i> "
       "is tiny &mdash; 730 KB of polygons and scores for 16 scenes, with no arrays at "
       "all. So the analysis runs once during <tt>docker build</tt>, where memory is "
@@ -197,7 +220,7 @@ def build(out_path: Path) -> None:
     P("The container also refuses live analysis outright. Without that, one "
       "\"re-analyse\" click loads the 933 MB coastline grid and kills the service.")
 
-    P("6. What changed during the build, and why", "h1")
+    P("6. What we changed our minds about, and why", "h1")
     F.append(table([
         ["Change", "Why"],
         ["Wind moved from a hardcoded constant to real ERA5",
@@ -236,7 +259,7 @@ def build(out_path: Path) -> None:
     ], [W * 0.30, W * 0.70], s))
 
     F.append(PageBreak())
-    P("7. The look-alike fit: a negative result", "h1")
+    P("7. A thing we tried that did not work, and why we are saying so", "h1")
     P("The brief names look-alike false-positive rate as the primary decider, and the "
       "model ships hand-set weights. Fitting them on Yang et al. (PANGAEA "
       "10.1594/PANGAEA.980773) would have turned a process claim into an accuracy "
@@ -264,7 +287,7 @@ def build(out_path: Path) -> None:
       "premise the whole differentiator rests on, and it depends on no part of our "
       "own detector. Full write-up: <tt>docs/lookalike-fit-attempt.md</tt>.")
 
-    P("8. What is claimed, and what is not", "h1")
+    P("8. What we claim, and what we refuse to claim", "h1")
     F.append(table([
         ["Defensible", "Explicitly not claimed"],
         ["Near-real-time detection, 3&ndash;24 h after acquisition",
@@ -280,7 +303,7 @@ def build(out_path: Path) -> None:
          "running is not the trained network."],
     ], [W * 0.48, W * 0.52], s))
 
-    P("9. Known limitations", "h1")
+    P("9. Things this system cannot do", "h1")
     P("&bull; Segmentation is the classical detector; the trained U-Net does not "
       "transfer to whole scenes.<br/>"
       "&bull; Look-alike weights are hand-set physical priors, not fitted.<br/>"

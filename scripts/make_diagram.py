@@ -94,7 +94,7 @@ def draw(out_path: Path) -> None:
     # ---- header ----------------------------------------------------------
     ax.text(3, 169.6, "Oil Spill Detection & Vessel Attribution",
             fontsize=20, color=INK, fontweight="bold", va="top")
-    ax.text(3, 165.3, "Architecture as deployed   ·   every input real   ·   "
+    ax.text(3, 165.3, "How it works, end to end   ·   all data is real   ·   "
                       "oilspill.onrender.com", fontsize=10.4, color=MUTED, va="top")
     ax.plot([3, 97], [163.0, 163.0], color=LINE, linewidth=1.2)
 
@@ -103,71 +103,71 @@ def draw(out_path: Path) -> None:
     SIDE_X, SIDE_W = 67.0, 30.0
 
     # ---- 1. data in ------------------------------------------------------
-    band(160.4, "1 · DATA IN      fetched, never invented", SOURCE)
+    band(160.4, "1 · WHAT GOES IN      all downloaded from public sources, nothing made up", SOURCE)
     src = stack(COL_X, 156.0, COL_W, [
         ("Sentinel-1 GRD  —  AWS Open Data mirror",
-         "catalogue via CDSE OData · no account needed\n"
-         "windowed /vsicurl reads: a scene costs 2 MB, not 1 GB"),
+         "Radar photos of the sea from a satellite. Free, no sign-up.\n"
+         "We download only the small patch we need: 2 MB, not 1 GB."),
         ("Wind — ERA5  —  Open-Meteo archive",
-         "the same reanalysis at the same 0.25° grid, over open HTTP\n"
-         "cached per grid cell per day, so a re-run needs no network"),
+         "How hard the wind was blowing there, at that exact time. Free.\n"
+         "Wind is the single biggest clue for telling oil from look-alikes."),
         ("Currents — CMEMS  —  Copernicus Marine",
-         "username and password; there is no API key\n"
-         "one NetCDF subset per scene"),
+         "Which way the sea was flowing, so we can trace oil backwards.\n"
+         "Needs a free account login."),
         ("AIS positions  —  NOAA Marine Cadastre",
-         "no account · 330 MB a day, streamed and filtered in flight\n"
-         "down to a few hundred KB covering one scene"),
+         "Positions the ships broadcast about themselves. Free.\n"
+         "A day is 330 MB; we keep only the ships near our patch of sea."),
         ("Dark vessels  —  Global Fishing Watch",
-         "free token · AIS gap events carrying the publisher's own\n"
-         "intentionalDisabling assessment"),
+         "Ships that switched their tracker OFF. Free sign-up.\n"
+         "A ship hiding is a stronger clue than one in plain sight."),
         ("Incidents  —  NOAA IncidentNews + curated catalogue",
-         "3,415 documented spills · corroboration only,\n"
-         "never used as training labels"),
+         "A public list of 3,415 real, recorded oil spills.\n"
+         "Used to double-check our answers, never to train the system."),
     ], SOURCE, fs=7.4, tfs=8.9, gap=2.6, align="left")
 
     down(SPINE, src[-1][1] - 0.5, src[-1][1] - 4.6, SOURCE)
 
     # ---- 2. pipeline -----------------------------------------------------
     top_pipe = src[-1][1] - 7.4
-    band(top_pipe + 3.6, "2 · PIPELINE      runs once, during docker build", STAGE)
+    band(top_pipe + 3.6, "2 · WHAT THE SYSTEM DOES      each step, in order", STAGE)
     pipe = stack(COL_X, top_pipe, COL_W, [
         ("ingest/",
-         "calibrate to Sigma0 dB  ·  refined-Lee speckle (float32)\n"
-         "land mask  ·  512 px tiles at ~80 m\n"
-         "a lightly-filtered copy is kept alongside, because heavy\n"
-         "filtering destroys the texture the next stage needs"),
+         "Turn the raw satellite numbers into true brightness,\n"
+         "blur out the speckly radar noise, cut out land, and slice\n"
+         "the scene into tiles. We keep a less-blurred copy too,\n"
+         "because blurring hides the fine detail the next step needs."),
         ("detect/stage_b   —   find the dark patches",
-         "classical adaptive dark-patch detector.\n"
-         "The trained U-Net is parked: 0.70 IoU on balanced patches,\n"
-         "but it does not transfer to whole scenes."),
+         "Oil flattens the sea, so it shows up as a DARK PATCH on radar.\n"
+         "This step finds every dark patch. Many will not be oil.\n"
+         "(A trained AI model exists but did not work on full scenes.)"),
         ("detect/lookalike   —   but is it really oil?",
-         "HARD GATES first, physics before any scoring:\n"
-         "   wind < 2 m/s  → reject — calm water looks exactly like oil\n"
-         "   wind > 15 m/s → reject — oil is mixed into the wave field\n"
-         "   in between    → a GRADED penalty, not a gate\n"
-         "then a small interpretable logistic model over damping, shape,\n"
-         "texture and VH/VV. Every rejection can be explained out loud."),
+         "Lots of things look like oil: calm patches, algae, rain, waves.\n"
+         "Wind decides. Too calm (under 2 m/s) and flat sea looks\n"
+         "identical to oil. Too rough (over 15 m/s) and oil is churned\n"
+         "away. Between those, we score how oil-like the patch is:\n"
+         "how dark, what shape, how smooth, how it looks on two radar\n"
+         "channels. Every rejection comes with a plain-English reason."),
         ("detect/wavetrain  +  morphology",
-         "scene-level periodicity → an internal-wave train\n"
-         "long and thin → a moving vessel   ·   blob → a fixed source"),
+         "Regular stripes across the scene = underwater waves, not oil.\n"
+         "A long thin streak = a moving ship. A blob = something fixed."),
         ("registry cross-check",
-         "a documented fixed source inside a DRIFT-SCALED radius routes the\n"
-         "slick to infrastructure or natural seep BEFORE any vessel is\n"
-         "considered. Blaming a ship for a known wellhead is the worst\n"
-         "error this system can make."),
+         "Before blaming any ship, check the public spill list. If a known\n"
+         "leaking wellhead or natural seep is nearby, the oil is credited\n"
+         "to that instead. Blaming a passing ship for a known wellhead\n"
+         "is the worst mistake this system could make."),
         ("drift/   —   backwards, to where it started",
-         "RK4 advection on real CMEMS currents\n"
-         "weathering disabled: those processes are not reversible\n"
-         "output: an origin, an uncertainty radius, a particle track"),
+         "Oil drifts after it spills, so where we SEE it is not where it\n"
+         "STARTED. We run the sea currents backwards to estimate the\n"
+         "starting point, plus how uncertain that estimate is."),
         ("attribute/   —   who was there at the time?",
-         "parity        how parallel the track is to the slick's long axis\n"
-         "proximity     Gaussian on the drift uncertainty\n"
-         "temporality   late arrivals decay three times faster\n"
-         "plus a bonus when a vessel went dark at the origin"),
+         "Now look at ships near that starting point and score each one:\n"
+         "was it heading the same way as the streak? how close did it\n"
+         "pass? how recently? did it switch its tracker off right there?\n"
+         "Each ship gets a score out of these four questions."),
         ("decision/   —   rank, or decline to",
-         "tiers: confirmed · probable · possible · insufficient\n"
-         "ABSTAIN when the top two are within noise, or when no AIS\n"
-         "covers the estimated origin at all"),
+         "Rank the ships and label our confidence in the oil itself.\n"
+         "If the top two ships are too close to call, or there are no ship\n"
+         "records at all, we SAY SO instead of guessing."),
     ], STAGE, fs=7.5, tfs=9.4, arrows=True)
 
     # The three physics stages are the contribution; mark them as one block.
@@ -181,7 +181,7 @@ def draw(out_path: Path) -> None:
 
     # ---- 3. serving ------------------------------------------------------
     top_serve = pipe[-1][1] - 8.0
-    band(top_serve + 3.6, "3 · SERVING      the container never runs the pipeline",
+    band(top_serve + 3.6, "3 · HOW THE WEBSITE SHOWS IT      the answers are worked out in advance",
          SERVE)
     serve = stack(COL_X, top_serve, COL_W, [
         ("build-time precompute",
@@ -203,29 +203,29 @@ def draw(out_path: Path) -> None:
     ], SERVE, fs=7.5, tfs=9.4, arrows=True)
 
     # ---- limits, running alongside the pipeline --------------------------
-    band(top_pipe + 3.6, "STATED LIMITS", WARN, x=SIDE_X)
+    band(top_pipe + 3.6, "WHAT WE DO NOT CLAIM", WARN, x=SIDE_X)
     stack(SIDE_X, top_pipe, SIDE_W, [
         ("not real-time",
-         "imagery lands 3–24 h after acquisition\n"
-         "free AIS lags about 72 h\n"
-         "revisit over one point is 6–12 days"),
+         "The satellite photo reaches us 3-24 hours late.\n"
+         "Free ship data is about 3 days behind.\n"
+         "The satellite passes over the same spot only every 6-12 days."),
         ("what SAR cannot do",
-         "it cannot measure oil thickness,\nvolume or type\n\n"
-         "outside the wind window,\n'no detection' ≠ 'no oil'"),
+         "Radar cannot tell how THICK the oil is, how much there is,\n"
+         "And if the wind was wrong, seeing nothing does NOT"),
         ("ranked, never accused",
-         "candidates are CORRELATIONS between\na drift-estimated origin and AIS\n"
-         "tracks: investigative leads, never\nevidence of responsibility"),
+         "We list ships that COULD be responsible, in order.\n"
+         "It is NOT proof, and we never name one ship"),
         ("running, not as designed",
-         "segmentation is the classical detector,\nnot the trained U-Net\n\n"
-         "look-alike weights are hand-set\nphysical priors, not fitted — the\n"
-         "PANGAEA fit was attempted and\nabandoned on evidence"),
+         "Finding dark patches uses a simple maths method,\n"
+         "The oil-vs-look-alike scores are set by hand from known\n"
+         "from a public dataset and stopped when we found the"),
         ("one synthetic scene of sixteen",
-         "15 are real Sentinel-1. One is\nfabricated, drawn dashed and labelled\n"
-         "everywhere it appears, because no\nreal scene can demonstrate vessel\n"
-         "ranking: no AIS coverage, or a\ndocumented fixed source, or no slick"),
+         "15 of the 16 scenes are real satellite data. One is made up,\n"
+         "because none of the real scenes can demonstrate the\n"
+         "oil came from a known wellhead, or there was no oil."),
         ("97% abstention is the system working",
-         "1 of 34 detections carries a ranked\nvessel. The rest decline for want of\n"
-         "evidence rather than guessing."),
+         "Only 1 of 34 detections names any ships. For the rest we\n"
+         "system behaving correctly, not failing."),
     ], WARN, fs=7.3, tfs=8.8, gap=3.0)
 
     ax.text(3, serve[-1][1] - 6.0,
