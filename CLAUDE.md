@@ -123,7 +123,7 @@ We have **no access to the Krestenitis dataset** (needs a supervisor's instituti
 | SAR imagery (alt) | ASF DAAC | `asf_search` + NASA Earthdata login |
 | SAR imagery (alt) | AWS Open Data | `s3://sentinel-s1-l1c --no-sign-request` |
 | **Pixel segmentation** | Trujillo-Acatitla et al. 2024, Zenodo | Open. 2,850 patches, half oil / half look-alike-or-background, **pixel-wise masks**. This is the segmentation training set |
-| **Look-alike analysis** | Yang et al. 2025, PANGAEA `10.1594/PANGAEA.980773` | **Open, CC-BY 4.0, no request.** 1,365 patches / 3,225 oil objects + 2,990 look-alike patches, Eastern Mediterranean. JPG + Pascal VOC XML (bounding boxes, not masks). **Critically: the no-oil patches are K-means clustered into 12 offshore + 5 coastal subgroups**, so we can report which look-alike type defeats each model. No other dataset offers this. Ships with a published baseline detector score |
+| **Look-alike analysis** | Yang et al. 2025, PANGAEA `10.1594/PANGAEA.980773` | **Metadata open; IMAGES ARE NOT.** The bulk archive answers **401 Unauthorized** and refers you to the PI, exactly like Krestenitis. What *is* open is the tabular export (`?format=textfile`, 2.4 MB): 5,515 annotated objects with class, acquisition time, patch and object corners in degrees, and the **source Sentinel-1 product id**. Those products are on the AWS mirror, so `scripts/extract_features.py` reads the ORIGINAL calibrated imagery instead of the gated JPGs — better than the dataset as distributed, since it yields real Sigma0 dB. **There are NO k-means cluster labels**: the only subgroup split published is `oc/ow/nc/nw` (oil/no-oil × coast/water). Boxes, not masks |
 | **Cross-domain** | Deep-SAR SOS | GitHub `CUG-URS/CBDNet-main`, Kaggle mirror. 8,070 patches, ALOS PALSAR (Gulf of Mexico) + Sentinel-1 (Persian Gulf). Use as the *generalisation* test — different basins, different sensor |
 | Ships / dark vessels | xView3-SAR | iuu.xview.us, free signup. **Take validation split only** — full set is hundreds of GB |
 | Weak labels + validation | SkyTruth Cerulean API | `api.cerulean.skytruth.org` — open, no key. Historical slick polygons incl. Indian waters |
@@ -132,6 +132,13 @@ We have **no access to the Krestenitis dataset** (needs a supervisor's instituti
 | AIS (Indian waters) | Global Fishing Watch | Free non-commercial token. ~72 h delay. All vessel types, plus AIS-gap events |
 | AIS (development) | Danish Maritime Authority | `http://web.ais.dk/aisdata/` — plain HTTP, no auth, ~2 GB/day |
 | Land mask | GSHHG | Bundled with OpenDrift |
+
+**The look-alike model is NOT fitted on Yang et al.** It was attempted and
+abandoned: the dataset boxes oil objects but labels whole patches for
+look-alikes, which makes `damping_db`, `elongation` and `compactness`
+incomparable between the classes and turns `log_area` into leakage. The one
+result that survived — look-alikes sit below the wind window 1.5x as often as
+real oil — is in `docs/lookalike-fit-attempt.md`. Read it before trying again.
 
 **Do not use Microsoft Planetary Computer** — Hub deprecated.
 
@@ -237,7 +244,7 @@ At minimum:
 
 Rank candidates on these, in this order:
 
-1. **Look-alike false-positive rate on the hard clusters.** Yang et al. give us K-means-clustered look-alike subgroups — report FP rate *per cluster*, and weight the low-wind and internal-wave clusters most heavily. These are the clusters that break real systems. **This is the primary decider.**
+1. **Look-alike false-positive rate, split coast vs water.** Yang et al. publish `nc`/`nw` — no-oil at the coast and on open water — and nothing finer. An earlier version of this file claimed twelve offshore and five coastal k-means subgroups; that is not in the released data, and any per-cluster claim built on it would be unsupportable. Report FP rate on each of the two subsets, and separately on the **low-wind slice** (ERA5 below the window), which we can construct ourselves because every patch carries a timestamp and position. **This is the primary decider.**
 2. **Oil IoU on small slicks** — bottom quartile by area. Models diverge most on faint, small targets, and those are the ones that matter operationally (a huge obvious slick needs no AI).
 3. **Cross-domain generalisation.** Train on Mediterranean data (Zenodo/PANGAEA), test on Deep-SAR SOS (Persian Gulf, Gulf of Mexico, different sensor). Our target is Indian waters, which appears in *no* training set — so the model that transfers best across basins is the model most likely to work where we actually need it. **Weight this heavily.**
 4. **Sample efficiency** — the N=50 → N=200 curve. A model that reaches usable performance on 50 samples is worth more to us than one that needs 500.
@@ -261,7 +268,7 @@ Report for every candidate, measured on the actual demo hardware:
 
 State the latency ceiling **before** running the bake-off, so the choice can't be rationalised afterwards: *full Sentinel-1 scene end-to-end in under X minutes on the demo machine.*
 
-Then: **among candidates that meet the latency ceiling, pick the one with the lowest look-alike FP rate on the hard clusters, tie-broken by cross-domain oil IoU.**
+Then: **among candidates that meet the latency ceiling, pick the one with the lowest look-alike FP rate on the coast and low-wind subsets, tie-broken by cross-domain oil IoU.**
 
 Produce a single comparison table — one row per model, columns for each decider metric plus each efficiency metric — and a scatter plot of look-alike FP rate against full-scene latency. That plot is a strong slide, and it shows a jury we chose by evidence rather than by fashion.
 

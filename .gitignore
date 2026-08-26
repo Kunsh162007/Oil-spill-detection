@@ -32,3 +32,7 @@ data/demo_finale/*.tif
 # Derived at build time by scripts/precompute.py from the .pkl files
 # beside it; regenerating is cheap and a stale copy is worse than none.
 data/precomputed/world_index.json
+
+# Per-cell ERA5 responses. A cache: free to refetch, and the
+# PANGAEA extraction alone adds a couple of hundred files.
+data/wind/openmeteo/

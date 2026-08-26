@@ -423,8 +423,11 @@ def train_lookalike(config, args) -> int:
     names = list(PRIOR_WEIGHTS)
     X, y, clusters = [], [], []
     for row in rows:
+        # Bookkeeping columns are strings and would blow up float(). They are
+        # carried in the table so a row can be traced back to its scene.
         raw = {k: float(v) for k, v in row.items()
-               if k not in ("label", "cluster") and v not in ("", None)}
+               if k not in ("label", "cluster", "subset", "set", "sentinel_id")
+               and v not in ("", None)}
         terms = transform_features(raw)
         X.append([terms.get(n, 0.0) for n in names])
         y.append(int(float(row["label"])))
