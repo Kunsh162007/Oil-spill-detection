@@ -465,7 +465,6 @@ function renderOverview() {
         <dt>Drift model</dt><dd class="mono">${esc(b.drift || "--")}</dd>
         <dt>Wind source</dt><dd class="mono">${esc(fieldSummary("wind_sources", b.wind))}</dd>
         <dt>Currents</dt><dd class="mono">${esc(fieldSummary("currents_sources", b.currents))}</dd>
-        <dt>GPU</dt><dd class="mono">${b.cuda ? "available" : "CPU only"}</dd>
         <dt>Registry</dt><dd>${(s.documented_incidents ?? 0).toLocaleString()} incidents</dd>
         <dt>Corroborated</dt><dd>${s.corroborated_by_registry ?? 0} detections</dd>
       </dl>

@@ -606,10 +606,23 @@ def stats():
                 reject_reasons["weak damping"] += 1
             else:
                 reject_reasons["other physics"] += 1
+        # Only slicks where naming a vessel was ever on the table. Counting
+        # every attribution swept in the rejected look-alikes - which have no
+        # vessel by definition - and drove the rate to 100% while 1 of 34
+        # confirmed slicks was in fact attributed. Fixed sources are excluded
+        # too: declining to blame a ship for a documented wellhead is the
+        # correct answer, not an abstention.
+        attributable = {c.candidate_id for c in analysis.confirmed}
         for attribution in analysis.attributions:
-            if attribution.abstained:
+            # "unknown" counts: morphology could not route it, but a vessel
+            # could still have been named, so an abstention there is a real
+            # abstention. Only the fixed sources are out of scope.
+            in_scope = (attribution.candidate_id in attributable
+                        and attribution.source_type
+                        not in ("natural_seep", "infrastructure"))
+            if in_scope and attribution.abstained:
                 abstained += 1
-            elif attribution.candidates:
+            elif in_scope and attribution.candidates:
                 attributed += 1
             if any(c.went_dark for c in attribution.candidates):
                 dark += 1
