@@ -205,27 +205,59 @@ def draw(out_path: Path) -> None:
     # ---- limits, running alongside the pipeline --------------------------
     band(top_pipe + 3.6, "WHAT WE DO NOT CLAIM", WARN, x=SIDE_X)
     stack(SIDE_X, top_pipe, SIDE_W, [
-        ("not real-time",
-         "The satellite photo reaches us 3-24 hours late.\n"
-         "Free ship data is about 3 days behind.\n"
-         "The satellite passes over the same spot only every 6-12 days."),
-        ("what SAR cannot do",
-         "Radar cannot tell how THICK the oil is, how much there is,\n"
-         "And if the wind was wrong, seeing nothing does NOT"),
-        ("ranked, never accused",
-         "We list ships that COULD be responsible, in order.\n"
-         "It is NOT proof, and we never name one ship"),
-        ("running, not as designed",
-         "Finding dark patches uses a simple maths method,\n"
-         "The oil-vs-look-alike scores are set by hand from known\n"
-         "from a public dataset and stopped when we found the"),
-        ("one synthetic scene of sixteen",
-         "15 of the 16 scenes are real satellite data. One is made up,\n"
-         "because none of the real scenes can demonstrate the\n"
-         "oil came from a known wellhead, or there was no oil."),
-        ("97% abstention is the system working",
-         "Only 1 of 34 detections names any ships. For the rest we\n"
-         "system behaving correctly, not failing."),
+        ("We cannot watch all the time",
+         "The satellite passes over the same\n"
+         "sea only every 6-12 days. Oil is gone\n"
+         "in days. A ship could dump the morning\n"
+         "after a pass and leave nothing to see.\n"
+         "We take occasional photos, not video."),
+        ("We cannot see it as it happens",
+         "The photo reaches us 3-24 hours late.\n"
+         "Free ship data is ~3 days behind.\n"
+         "So: 'found soon after', never 'live'."),
+        ("We cannot see oil in the wrong wind",
+         "Radar does not see oil. It sees that the\n"
+         "sea is unusually SMOOTH where oil is.\n"
+         "Too calm: the sea is already smooth.\n"
+         "Too rough: waves churn the oil under.\n"
+         "So 'we found no oil' is NOT the same\n"
+         "as 'there was no oil'."),
+        ("We cannot tell how much oil",
+         "No thickness, so no volume. A thin\n"
+         "sheen and a bad spill can look alike.\n"
+         "No oil type either - crude, diesel and\n"
+         "cooking oil all just look dark."),
+        ("We cannot prove who did it",
+         "We find: oil probably started near here,\n"
+         "around this time, these ships were near.\n"
+         "That is a COINCIDENCE, not evidence.\n"
+         "The drift guess is off by tens of km,\n"
+         "busy lanes have many ships, and a\n"
+         "guilty ship can switch its tracker off\n"
+         "and never appear in our list at all.\n"
+         "So: a ranked list, never one name."),
+        ("We often cannot name anyone",
+         "1 of 34 detections has ships ranked.\n"
+         "The rest say 'not enough evidence'.\n"
+         "A system that always gives a name\n"
+         "is a system that is guessing."),
+        ("We cannot see tiny or faint slicks",
+         "Under ~0.05 km2 a dark patch cannot\n"
+         "be told apart from radar noise.\n"
+         "Small dumps can slip under that."),
+        ("We are weaker near the coast",
+         "Harbours, shallows and land create\n"
+         "confusing dark and bright patterns."),
+        ("What we have not finished",
+         "The AI model works on small tiles but\n"
+         "not full scenes, so a simpler method\n"
+         "runs instead. The oil-vs-look-alike\n"
+         "scores are set by hand from physics,\n"
+         "not learned from data."),
+        ("What radar CAN do, for balance",
+         "It sees through cloud and works at\n"
+         "night. That is why radar is used at all.\n"
+         "These limits are the price of that."),
     ], WARN, fs=7.3, tfs=8.8, gap=3.0)
 
     ax.text(3, serve[-1][1] - 6.0,
