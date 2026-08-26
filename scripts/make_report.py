@@ -67,8 +67,7 @@ def table(rows, widths, s, header=True):
 def build(out_path: Path) -> None:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
-    from reportlab.platypus import (Image, PageBreak, Paragraph, SimpleDocTemplate,
-                                    Spacer)
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate
 
     s = styles()
     doc = SimpleDocTemplate(str(out_path), pagesize=A4,
@@ -292,15 +291,11 @@ def build(out_path: Path) -> None:
       "<br/>"
       "&bull; Outside the wind window, \"no detection\" does not mean \"no oil\".")
 
-    diagram = REPO_ROOT / "docs" / "architecture.jpg"
-    if diagram.exists():
-        F.append(PageBreak())
-        P("Appendix &mdash; architecture as deployed", "h1")
-        img = Image(str(diagram))
-        img.drawWidth, img.drawHeight = W, img.imageHeight * (W / img.imageWidth)
-        F.append(img)
-        F.append(Spacer(1, 6))
-        P("Full-resolution copy: <tt>docs/architecture.jpg</tt>", "small")
+    # The architecture diagram is a separate deliverable, not an appendix:
+    # it is a tall top-to-bottom flow and shrinking it onto A4 made it
+    # unreadable, which defeats the point of having drawn it.
+    P("The architecture diagram is a separate file: "
+      "<tt>docs/architecture.jpg</tt>.", "small")
 
     doc.build(F)
 
