@@ -31,8 +31,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.config import REPO_ROOT, load_config
-from api.serialize import (attribution_detail, refresh_ages, scene_collection,
-                           world_index)
+from api.serialize import (attribution_detail, is_presented, refresh_ages,
+                           scene_collection, world_index)
 from api.store import AnalysisStore, live_analysis_allowed
 from decision.rank import DISCLAIMER
 
@@ -580,6 +580,7 @@ def stats():
     from collections import Counter
 
     analysed, confirmed, rejected, abstained, attributed, dark = 0, 0, 0, 0, 0, 0
+    lower_confidence = 0
     reject_reasons: Counter[str] = Counter()
     stage_times: dict[str, float] = {}
     corroborated = 0
@@ -590,7 +591,17 @@ def stats():
         except Exception:
             continue
         analysed += 1
-        confirmed += analysis.stats.get("n_confirmed", 0)
+        # Count what the map presents, not every confirmed candidate: stats
+        # said 38 while the map drew 34, the difference being lower-tier
+        # candidates the map deliberately withholds. The withheld ones are
+        # reported separately rather than dropped.
+        tiers = {a.candidate_id: (a.evidence.get("confidence") or {}).get("tier")
+                 for a in analysis.attributions}
+        for candidate in analysis.confirmed:
+            if is_presented(tiers.get(candidate.candidate_id)):
+                confirmed += 1
+            else:
+                lower_confidence += 1
         rejected += analysis.stats.get("n_rejected", 0)
         for candidate in analysis.rejected:
             reason = (candidate.rejected_reason or "").lower()
@@ -637,6 +648,8 @@ def stats():
     return JSONResponse({
         "scenes_analysed": analysed,
         "slicks_confirmed": confirmed,
+        # Detected and confirmed as oil, but below the tier the map presents.
+        "slicks_lower_confidence": lower_confidence,
         "lookalikes_rejected": rejected,
         "rejection_reasons": dict(reject_reasons.most_common()),
         "attributed": attributed,
@@ -698,11 +711,37 @@ def cerulean(
 SERVE_UI = os.environ.get("SERVE_UI", "true").lower() not in ("false", "0", "no")
 UI_DIR = REPO_ROOT / "ui"
 if SERVE_UI and UI_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=str(UI_DIR / "static")), name="static")
+
+    class RevalidatingStatics(StaticFiles):
+        """Static files that must be revalidated, not assumed fresh.
+
+        The mount sent an ETag and a Last-Modified and no Cache-Control at all.
+        With no explicit directive a browser falls back to HEURISTIC caching -
+        roughly a tenth of the file's age - and serves a stale copy without
+        asking. The visible result was a deployment where the API had clearly
+        updated (the abstention rate had changed) while app.js was still the
+        previous build, so removed panels stayed on screen.
+
+        "no-cache" does not mean "do not store": it means revalidate every
+        time. The ETag is still there, so an unchanged file costs a 304 and no
+        body. These assets are tens of kilobytes and change on every deploy,
+        which is exactly the trade that favours revalidation.
+        """
+
+        async def get_response(self, path: str, scope):
+            response = await super().get_response(path, scope)
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+            return response
+
+    app.mount("/static", RevalidatingStatics(directory=str(UI_DIR / "static")),
+              name="static")
 
     @app.get("/")
     def index() -> FileResponse:
         page = UI_DIR / "index.html"
         if not page.exists():
             raise HTTPException(404, "UI not built")
-        return FileResponse(str(page))
+        # Same reasoning as the static mount: an index cached by heuristic
+        # can pin a whole stale asset set.
+        return FileResponse(str(page),
+                            headers={"Cache-Control": "no-cache, must-revalidate"})

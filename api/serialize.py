@@ -45,6 +45,21 @@ def _clean(value: Any) -> Any:
 # should not sit on the map implying oil is there right now.
 ACTIVE_WINDOW_HOURS = 72.0
 
+# Which confidence tiers are presented to a viewer as actual oil. Anything
+# below stays reachable through the per-scene endpoint but is not counted as a
+# detection, because putting a "possible" on the map next to a "confirmed"
+# invites them to be read as the same claim.
+#
+# One definition, used by both the map and the headline counters: they used to
+# disagree - 34 on the map against 38 in /api/stats - and two numbers for the
+# same thing on one screen is exactly what a reader picks at.
+PRESENTED_TIERS = ("confirmed", "probable", "unknown")
+
+
+def is_presented(tier: str | None) -> bool:
+    """Whether a candidate at this tier counts as a presented detection."""
+    return (tier or "unknown") in PRESENTED_TIERS
+
 
 def scene_status(acquired_at, now=None) -> tuple[str, float]:
     """('active'|'historical', age_hours) for a scene acquisition time."""
@@ -262,9 +277,7 @@ def world_index(analyses: list[SceneAnalysis]) -> dict[str, Any]:
             # this must survive being pulled out of the collection.
             feature["properties"]["synthetic"] = bool(analysis.stats.get("synthetic"))
             tier = feature["properties"].get("confidence_tier")
-            # Only "confirmed" and "probable" are presented as actual oil.
-            # Lower tiers stay available through the per-scene endpoint.
-            if tier in ("confirmed", "probable") or tier == "unknown":
+            if is_presented(tier):
                 features.append(feature)
     active = [f for f in features if f["properties"].get("activity") == "active"]
     historical = [f for f in features if f["properties"].get("activity") == "historical"]
