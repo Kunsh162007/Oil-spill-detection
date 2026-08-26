@@ -23,7 +23,7 @@ scene can demonstrate vessel ranking.
 `detect/lookalike` with hard physics gates · `detect/wavetrain` ·
 `detect/morphology` · registry corroboration · `drift/` backward on real
 currents · `attribute/` AIS scoring + dark vessels · `decision/` tiers and
-abstention · `api/` + `ui/` · build-time precompute · 230+ tests passing.
+abstention · `api/` + `ui/` · build-time precompute · 239 tests passing.
 
 ### Not what the plan called for — say so out loud
 - **Segmentation is the classical dark-patch detector.** The trained U-Net
@@ -47,6 +47,15 @@ All of the deleted inputs are re-downloadable without credentials — Zenodo
 record 4672426, and the PANGAEA curl printed by `scripts/extract_features.py`.
 `configs/train_gom.yaml` still points at the manifests and says so at the top;
 run `scripts/prepare_dataset.py` to rebuild them before training again.
+
+`data/cache/` was cleared at the same time — 2.0 GB of ingest caches plus 21
+orphaned `GOM_*.tmp` part-files from killed training runs. It is a pure speed
+cache: `ingest/pipeline.py` keys each entry on the scene and every ingest
+parameter, and on a miss recomputes from the GeoTIFFs, which are all still on
+disk (18 in `data/live/`, 12 in `data/demo_finale/`). Nothing reads it as a
+source of truth and `.dockerignore` never let it near the image. Expect the
+first run over a scene to be slow again; that is the cache refilling, not a
+regression. `data/` now totals ~133 MB.
 
 ### The corrections that mattered most
 1. **Real wind cut detections from 63 to 28.** Both configs had used a
@@ -219,7 +228,9 @@ Credentials go in `.env`. Never commit them.
 ## DATA SPLITS — KEEP SEPARATE
 
 ```
-data/dev/            SOS + Zenodo + one Danish AIS day. Train and measure here.
+data/dev/            Train and measure here. NOW NEARLY EMPTY - holds only
+                     lookalike_features.csv. The SOS/Zenodo patches were
+                     deleted after fine-tuning; refetch before training.
 data/demo_internal/  One clean linear bilge-dump slick + dense AIS. For 26 August.
 data/demo_finale/    MSC ELSA 3 (Kerala, 24–27 May 2025, 09°18.75'N 076°08.16'E)
                      + one low-wind look-alike scene we correctly reject
@@ -507,6 +518,32 @@ docker run --gpus all -v $(pwd)/data:/app/data -v $(pwd)/runs:/app/runs \
 
 Plus `make train CONFIG=...` and a CPU fallback tag. **Test the image on someone else's machine before the internal round.**
 
+### Why four requirements files and three Dockerfiles
+Neither set is duplication. Both are split by *where the code runs*, and the
+512 MB free tier is the reason.
+
+| File | Runs where |
+|---|---|
+| `requirements.txt` | development — everything a laptop needs |
+| `requirements-api.txt` | the deployed container ONLY, a strict subset |
+| `requirements-ml.txt` | training only; torch + CUDA wheels, ~2.5 GB |
+| `requirements-optional.txt` | heavy/credentialed extras; degrades gracefully |
+
+`requirements-api.txt` exists because `requirements.txt` pulls matplotlib,
+pandas and scikit-learn, which only `train.py`, `eval.py`, `bakeoff.py` and
+`prepare_dataset.py` use. On 512 MB that overhead alone can exhaust memory
+before the first request lands.
+
+| Dockerfile | Built by |
+|---|---|
+| `Dockerfile` (root) | Render. The only one ever deployed |
+| `docker/Dockerfile.train` | `make docker-train`, CUDA base |
+| `docker/Dockerfile.frontend` | docker-compose's `ui` service, nginx |
+
+**Do not move the root `Dockerfile` into `docker/` for tidiness.** Every PaaS
+looks at the repo root by default and Hugging Face Spaces cannot be pointed
+elsewhere at all. The header of the file says this too.
+
 ---
 
 ## BUILD ORDER
@@ -530,7 +567,9 @@ Plus `make train CONFIG=...` and a CPU fallback tag. **Test the image on someone
 ## CODING STANDARDS
 
 - Python 3.11, type hints on every function, no notebooks in the repo
-- Tests before implementation; tests use real files from `data/dev/`, never in-memory fakes
+- Tests before implementation; tests use real files, never in-memory fakes.
+  They read from `data/demo_finale/` and `data/demo_internal/` now that the
+  `data/dev/` training set is gone — the imagery there is still on disk
 - One module per Claude Code session — long sessions drift and rewrite working code
 - Commit after every working module
 
