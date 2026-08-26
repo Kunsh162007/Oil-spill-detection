@@ -145,7 +145,13 @@ function renderChips() {
   chip.textContent = trained ? "trained U-Net" : "classical detector";
   chip.className = trained ? "chip" : "chip warn";
   chip.title = seg;
-  $("chip-timeliness").textContent = h.timeliness || "near-real-time";
+  // Short form in the chip: the lag figures are covered in the deck. The
+  // "near-real-time" wording stays, because claiming live would be false and
+  // is the one thing CLAUDE.md rule 2 forbids outright. The full string is
+  // still on /api/health for anyone consuming the API.
+  const timeliness = String(h.timeliness || "near-real-time").split(" (")[0];
+  $("chip-timeliness").textContent = timeliness;
+  $("chip-timeliness").title = h.timeliness || "";
 }
 
 // A detection with no ranked vessel is still a real detection - the physics
@@ -465,21 +471,17 @@ function renderOverview() {
       </dl>
     </div>
 
-    ${(s.abstention_rate ?? 0) > 0.9 ? `
-    <div class="notice caution" style="margin-top:0;margin-bottom:14px">
-      <b>Almost everything abstains right now.</b> These scenes have no AIS
-      coverage loaded, so there is nobody to rank against the drift origin.
-      That is a missing input, not an uncertain model &mdash; run
-      <code>scripts/fetch_ais.py</code> to supply it.
-    </div>` : ""}
+    ${""/* The standing "honest limits" and "almost everything abstains" notices
+        were removed from this panel on request: they are presented in the deck
+        instead, and repeating them here crowded the overview.
 
-    <div class="notice caution">
-      <b>Honest limits.</b> Imagery arrives 3&ndash;24 h after acquisition and free
-      AIS lags about 72 h &mdash; this is near-real-time, not live. Oil is only
-      reliably visible on radar between roughly 2&ndash;3 and 7&ndash;12 m/s of wind.
-      Revisit is 6&ndash;12 days, so a spill can appear and disperse between passes.
-      SAR cannot measure oil thickness, volume or type.
-    </div>
+        Deliberately NOT removed, and please leave them alone:
+          - the per-vessel correlation disclaimer, which every surface naming a
+            vessel carries (CLAUDE.md rule 1)
+          - the per-candidate abstention reason in the detail view, which is a
+            statement about THAT slick rather than a general caveat
+        Those two guard against presenting a correlation as an accusation,
+        which is the one failure this project cannot absorb. */}
   `;
 }
 
