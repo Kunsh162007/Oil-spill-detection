@@ -2,7 +2,61 @@
 
 **SIH 2026 · SIH26143 · NTRO · Theme: Space Technology**
 
-Read `PROJECT.md` in this folder for the plain-language explanation of the whole project. This file is the engineering contract.
+`docs/decision-record.pdf` is the plain-language explanation of the whole project, written for technical and non-technical readers alike, and `docs/architecture.jpg` is the same thing as a flowchart. This file is the engineering contract.
+
+---
+
+## WHERE THE PROJECT STANDS  (26 Aug 2026)
+
+Live at **oilspill.onrender.com** — 16 scenes, 34 presented detections,
+74 MB resident against a 512 MB free tier.
+
+**Every input is real.** Sentinel-1 from the AWS Open Data mirror (no account),
+ERA5 wind via Open-Meteo (no account), CMEMS currents (login), NOAA Marine
+Cadastre AIS positions (no account), GFW gap events (free token), NOAA
+IncidentNews + a curated catalogue (3,415 spills). One of the 16 scenes is
+synthetic, drawn dashed and labelled everywhere it appears, because no real
+scene can demonstrate vessel ranking.
+
+### Built and working
+`core/contracts.py` frozen · `ingest/` · `detect/stage_b` (classical) ·
+`detect/lookalike` with hard physics gates · `detect/wavetrain` ·
+`detect/morphology` · registry corroboration · `drift/` backward on real
+currents · `attribute/` AIS scoring + dark vessels · `decision/` tiers and
+abstention · `api/` + `ui/` · build-time precompute · 230+ tests passing.
+
+### Not what the plan called for — say so out loud
+- **Segmentation is the classical dark-patch detector.** The trained U-Net
+  reached 0.70 oil IoU on balanced patches and did not transfer to whole
+  scenes. Checkpoint parked as `stage_b_patchonly.pt`.
+- **Look-alike weights are hand-set physical priors, not fitted.** The PANGAEA
+  fit was attempted and abandoned on evidence — see
+  `docs/lookalike-fit-attempt.md`. The one result that survived: look-alikes
+  sit below the wind window 32% of the time against 21% for real oil.
+
+### The corrections that mattered most
+1. **Real wind cut detections from 63 to 28.** Both configs had used a
+   climatological constant sitting mid-window, so every candidate scored a
+   perfect wind match and the strongest discriminator contributed nothing.
+2. **ELSA 3 revalidated on the 9 June 2025 pass** (ERA5 wind 5.33 m/s). The
+   28 May scene is outside the window at 11.4–13.4 m/s. All four checks pass.
+3. **Fixed sources now outrank geometry.** MC-20 was ranking three named
+   vessels against a documented wellhead — rule 4's worst failure — because
+   morphology only looked within 15 km and `to_dict` dropped the registry flag.
+4. **The wind ceiling is graded, not a gate.** Low wind causes false positives
+   and is gated hard; high wind causes false negatives, so a strong feature
+   seen anyway is evidence. Hard gate only at 15 m/s.
+5. **Corroboration radius scales with drift time**: 30 km + 20 km/day, capped
+   at 250 km. A flat 60 km asked a fortnight-old slick to have stayed put.
+6. **Drift interpolation: 620 s → 4.6 s** by preloading the field into numpy
+   instead of calling `xarray.interp` per particle per timestep.
+7. **Memory**: `global_land_mask` allocates 933 MB at import — it is now lazy.
+   That, not the pipeline, was what kept OOM-killing the container.
+
+### Known gaps
+Attribution abstains on 97% of detections — correctly: no AIS coverage in
+Indian waters, documented fixed sources, or no slick. The bake-off has latency
+numbers but no accuracy numbers. Coastal test data is thin (19 of 174).
 
 ---
 

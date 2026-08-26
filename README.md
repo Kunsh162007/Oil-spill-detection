@@ -7,7 +7,7 @@ using physics, drift the slick backwards through ocean currents to estimate
 where it started, and return a **ranked list of candidate vessels** — never a
 single accusation.
 
-Read `PROJECT.md` for the plain-language explanation. `CLAUDE.md` is the
+Read `docs/decision-record.pdf` for the plain-language explanation. `CLAUDE.md` is the
 engineering contract.
 
 ---
